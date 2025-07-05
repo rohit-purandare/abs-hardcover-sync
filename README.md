@@ -59,7 +59,7 @@ Syncing Project Hail Mary: 71.5% → page 354/496
 
 **Hardcover:**
 - Visit [hardcover.app/account/api](https://hardcover.app/account/api)
-- Copy your API token
+- Copy your API token (do NOT include "Bearer " prefix)
 
 ### 2. Create Config File
 ```bash
