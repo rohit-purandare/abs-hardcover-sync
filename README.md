@@ -147,8 +147,12 @@ The tool uses a minimum progress threshold to keep your "Currently Reading" list
 
 - **Above threshold** (default: 5%): Added to "Currently Reading" + progress synced
 - **Below threshold**: Added to "Want to Read" + progress synced
+- **0% progress**: Added to "Want to Read" + no progress sync (avoids API errors)
 
-This ensures all your started books are tracked while keeping your active reading list focused on books with meaningful progress.
+**Smart Status Management:**
+- Books automatically move from "Want to Read" to "Currently Reading" when they cross the threshold
+- Books automatically move from "Currently Reading" to "Want to Read" when they drop below the threshold
+- This keeps your active reading list focused while ensuring all started books are tracked
 
 ### Smart Features
 - **Progress Threshold**: Only adds books to "Currently Reading" if you've made meaningful progress (default: 5%)

@@ -665,10 +665,33 @@ class SyncManager:
                     "reason": "No page count available",
                 }
 
+            # Skip progress sync for 0% progress to avoid API errors
+            if progress_percent == 0.0:
+                # Still check if we need to update the book status
+                status_result = self._check_and_update_book_status(
+                    user_book, progress_percent, title
+                )
+
+                # Store the progress in cache even for 0% (for tracking purposes)
+                if isbn:
+                    self.progress_cache.store_progress(isbn, title, progress_percent)
+
+                return {
+                    "status": "skipped",
+                    "title": title,
+                    "reason": "0% progress - no progress sync (status check performed)",
+                    "status_check": status_result,
+                }
+
             # Calculate current page from percentage
             current_page = max(1, int((progress_percent / 100) * total_pages))
 
             if not self.dry_run:
+                # Check if we need to update the book status first
+                status_result = self._check_and_update_book_status(
+                    user_book, progress_percent, title
+                )
+
                 # Log the sync details before attempting
                 self.logger.info(
                     f"Syncing {title}: {progress_percent:.1f}% → page {current_page}/{total_pages} (edition {edition_id})"
@@ -690,14 +713,21 @@ class SyncManager:
                         "status": "synced",
                         "title": title,
                         "progress": f"{current_page}/{total_pages} pages ({progress_percent:.1f}%)",
+                        "status_check": status_result,
                     }
                 else:
                     return {
                         "status": "failed",
                         "title": title,
                         "reason": "Failed to update progress",
+                        "status_check": status_result,
                     }
             else:
+                # Check if we need to update the book status first
+                status_result = self._check_and_update_book_status(
+                    user_book, progress_percent, title
+                )
+
                 # Log dry-run sync details
                 self.logger.info(
                     f"Would sync {title}: {progress_percent:.1f}% → page {current_page}/{total_pages} (edition {edition_id})"
@@ -706,6 +736,7 @@ class SyncManager:
                     "status": "would_sync",
                     "title": title,
                     "progress": f"Would sync to {current_page}/{total_pages} pages ({progress_percent:.1f}%)",
+                    "status_check": status_result,
                 }
 
         except Exception as e:
@@ -959,3 +990,98 @@ class SyncManager:
         """Clear both edition and progress caches"""
         self.edition_cache.clear_cache()
         self.progress_cache.clear_cache()
+
+    def _check_and_update_book_status(
+        self, user_book: Dict, progress_percent: float, title: str
+    ) -> Dict[str, Any]:
+        """
+        Check if a book should be moved between "Want to Read" and "Currently Reading"
+        based on progress threshold
+        """
+        user_book_id = user_book["id"]
+        current_status_id = user_book.get("status_id")
+
+        # Check if progress has crossed the threshold
+        if progress_percent >= self.min_progress_threshold:
+            # Move from "Want to Read" (1) to "Currently Reading" (2) if needed
+            if current_status_id == 1:
+                if not self.dry_run:
+                    success = self.hardcover.update_book_status(user_book_id, 2)
+
+                    if success:
+                        self.logger.info(
+                            f"🔄 Moved '{title}' from 'Want to Read' to 'Currently Reading' "
+                            f"({progress_percent:.1f}% >= {self.min_progress_threshold}% threshold)"
+                        )
+                        return {
+                            "status": "status_updated",
+                            "title": title,
+                            "reason": f"Moved to Currently Reading ({progress_percent:.1f}% >= {self.min_progress_threshold}% threshold)",
+                        }
+                    else:
+                        return {
+                            "status": "failed",
+                            "title": title,
+                            "reason": "Failed to update book status",
+                        }
+                else:
+                    self.logger.info(
+                        f"Would move '{title}' from 'Want to Read' to 'Currently Reading' "
+                        f"({progress_percent:.1f}% >= {self.min_progress_threshold}% threshold)"
+                    )
+                    return {
+                        "status": "would_update_status",
+                        "title": title,
+                        "reason": f"Would move to Currently Reading ({progress_percent:.1f}% >= {self.min_progress_threshold}% threshold)",
+                    }
+            else:
+                return {
+                    "status": "no_change",
+                    "title": title,
+                    "reason": "Already in appropriate status",
+                }
+
+        else:
+            # Move from "Currently Reading" (2) to "Want to Read" (1) if below threshold
+            if current_status_id == 2:
+                if not self.dry_run:
+                    success = self.hardcover.update_book_status(user_book_id, 1)
+
+                    if success:
+                        self.logger.info(
+                            f"🔄 Moved '{title}' from 'Currently Reading' to 'Want to Read' "
+                            f"({progress_percent:.1f}% < {self.min_progress_threshold}% threshold)"
+                        )
+                        return {
+                            "status": "status_updated",
+                            "title": title,
+                            "reason": f"Moved to Want to Read ({progress_percent:.1f}% < {self.min_progress_threshold}% threshold)",
+                        }
+                    else:
+                        return {
+                            "status": "failed",
+                            "title": title,
+                            "reason": "Failed to update book status",
+                        }
+                else:
+                    self.logger.info(
+                        f"Would move '{title}' from 'Currently Reading' to 'Want to Read' "
+                        f"({progress_percent:.1f}% < {self.min_progress_threshold}% threshold)"
+                    )
+                    return {
+                        "status": "would_update_status",
+                        "title": title,
+                        "reason": f"Would move to Want to Read ({progress_percent:.1f}% < {self.min_progress_threshold}% threshold)",
+                    }
+            else:
+                return {
+                    "status": "no_change",
+                    "title": title,
+                    "reason": "Already in appropriate status",
+                }
+
+        return {
+            "status": "no_change",
+            "title": title,
+            "reason": "No status change needed",
+        }
