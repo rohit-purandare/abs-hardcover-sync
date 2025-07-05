@@ -72,4 +72,8 @@ coverage/
 
 # Application cache files
 .edition_cache.json
+.progress_cache.json
+
+# Type checking cache
+.mypy_cache/
 
