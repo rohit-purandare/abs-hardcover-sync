@@ -42,6 +42,7 @@ class Config:
         # Sync settings
         self.DEFAULT_SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL_HOURS", "6"))
         self.DRY_RUN = os.getenv("DRY_RUN", "").lower() in ("true", "1", "yes")
+        self.MIN_PROGRESS_THRESHOLD = float(os.getenv("MIN_PROGRESS_THRESHOLD", "5.0"))
 
         # Logging settings
         self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -90,6 +91,7 @@ class Config:
             "dry_run": self.DRY_RUN,
             "max_retries": self.MAX_RETRIES,
             "retry_delay": self.RETRY_DELAY,
+            "min_progress_threshold": self.MIN_PROGRESS_THRESHOLD,
         }
 
     def __str__(self) -> str:
@@ -100,6 +102,7 @@ class Config:
   Hardcover Token: {'[SET]' if self.HARDCOVER_TOKEN else '[NOT SET]'}
   Sync Interval: {self.DEFAULT_SYNC_INTERVAL} hours
   Dry Run: {self.DRY_RUN}
+  Min Progress Threshold: {self.MIN_PROGRESS_THRESHOLD}%
   Log Level: {self.LOG_LEVEL}
   Max Retries: {self.MAX_RETRIES}
   Retry Delay: {self.RETRY_DELAY} seconds"""

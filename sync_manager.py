@@ -268,7 +268,13 @@ class SyncManager:
         # Initialize progress tracking cache
         self.progress_cache = ProgressTrackingCache()
 
-        self.logger.info(f"SyncManager initialized (dry_run: {dry_run})")
+        # Get sync configuration
+        sync_config = config.get_sync_config()
+        self.min_progress_threshold = sync_config.get("min_progress_threshold", 5.0)
+
+        self.logger.info(
+            f"SyncManager initialized (dry_run: {dry_run}, min_threshold: {self.min_progress_threshold}%)"
+        )
 
     def sync_progress(self) -> Dict[str, Any]:
         """
@@ -481,21 +487,21 @@ class SyncManager:
         if not isbn:
             return {"status": "skipped", "title": title, "reason": "No ISBN found"}
 
-        # Skip books that haven't been started (minimum 2% progress required)
-        if progress_percent < 2.0:
-            return {
-                "status": "skipped",
-                "title": title,
-                "reason": f"Not started ({progress_percent:.1f}% < 2% threshold)",
-            }
+        # For books below threshold, we'll still add them but with "Want to Read" status
+        # This ensures all started books are tracked, even if progress is minimal
 
-        # Check if progress has changed since last sync
-        if not self.progress_cache.has_progress_changed(isbn, title, progress_percent):
-            return {
-                "status": "skipped",
-                "title": title,
-                "reason": f"No progress change ({progress_percent:.1f}% same as last sync)",
-            }
+        # For books above threshold, check if progress has changed since last sync
+        if progress_percent >= self.min_progress_threshold:
+            if not self.progress_cache.has_progress_changed(
+                isbn, title, progress_percent
+            ):
+                return {
+                    "status": "skipped",
+                    "title": title,
+                    "reason": f"No progress change ({progress_percent:.1f}% same as last sync)",
+                }
+        # For books below threshold, we'll add them regardless of progress changes
+        # This ensures they get tracked even with minimal progress
 
         # Check if book exists in Hardcover
         hardcover_match = isbn_to_hardcover.get(isbn)
@@ -526,38 +532,70 @@ class SyncManager:
             book_id = book_data["id"]
 
             if not self.dry_run:
-                # Add to library with "Currently Reading" status
-                user_book = self.hardcover.add_book_to_library(book_id, status_id=2)
+                # Check if progress meets threshold before adding to "Currently Reading"
+                progress_percent = abs_book.get("progress_percentage", 0)
+                edition = book_data.get("primary_edition", {})
 
-                if user_book:
-                    self.logger.info(f"Auto-added '{title}' to Hardcover library")
+                if progress_percent >= self.min_progress_threshold:
+                    # Add to library with "Currently Reading" status
+                    user_book = self.hardcover.add_book_to_library(book_id, status_id=2)
 
-                    # Now sync the progress
-                    progress_percent = abs_book.get("progress_percentage", 0)
-                    edition = book_data.get("primary_edition", {})
-
-                    if progress_percent >= 2.0 and edition:
-                        return self._sync_progress_to_hardcover(
-                            user_book, edition, progress_percent, title, isbn
+                    if user_book:
+                        self.logger.info(
+                            f"Auto-added '{title}' to Hardcover library (Currently Reading)"
                         )
 
+                        if edition:
+                            return self._sync_progress_to_hardcover(
+                                user_book, edition, progress_percent, title, isbn
+                            )
+
+                        return {
+                            "status": "auto_added",
+                            "title": title,
+                            "reason": "Added to library (Currently Reading)",
+                        }
+                    else:
+                        return {
+                            "status": "failed",
+                            "title": title,
+                            "reason": "Failed to add to library",
+                        }
+                else:
+                    # Add to library with "Want to Read" status for books below threshold
+                    user_book = self.hardcover.add_book_to_library(book_id, status_id=1)
+
+                    if user_book:
+                        self.logger.info(
+                            f"Auto-added '{title}' to Hardcover library (Want to Read - below threshold)"
+                        )
+
+                        return {
+                            "status": "auto_added",
+                            "title": title,
+                            "reason": f"Added to library (Want to Read - {progress_percent:.1f}% < {self.min_progress_threshold}% threshold)",
+                        }
+                    else:
+                        return {
+                            "status": "failed",
+                            "title": title,
+                            "reason": "Failed to add to library",
+                        }
+            else:
+                # Dry run - show what would happen
+                progress_percent = abs_book.get("progress_percentage", 0)
+                if progress_percent >= self.min_progress_threshold:
                     return {
-                        "status": "auto_added",
+                        "status": "would_auto_add",
                         "title": title,
-                        "reason": "Added to library",
+                        "reason": f"Would add to library (Currently Reading - {progress_percent:.1f}% >= {self.min_progress_threshold}% threshold)",
                     }
                 else:
                     return {
-                        "status": "failed",
+                        "status": "would_auto_add",
                         "title": title,
-                        "reason": "Failed to add to library",
+                        "reason": f"Would add to library (Want to Read - {progress_percent:.1f}% < {self.min_progress_threshold}% threshold)",
                     }
-            else:
-                return {
-                    "status": "would_auto_add",
-                    "title": title,
-                    "reason": "Would add to library (dry run)",
-                }
 
         except Exception as e:
             return {
@@ -642,7 +680,7 @@ class SyncManager:
                 )
 
                 if success:
-                    # Store the synced progress in cache
+                    # Store the synced progress in cache (for both above and below threshold)
                     if isbn:
                         self.progress_cache.store_progress(
                             isbn, title, progress_percent

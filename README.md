@@ -75,6 +75,9 @@ AUDIOBOOKSHELF_TOKEN=your_audiobookshelf_api_token
 
 # Your Hardcover token
 HARDCOVER_TOKEN=your_hardcover_api_token
+
+# Optional: Customize sync behavior
+MIN_PROGRESS_THRESHOLD=5.0  # Only add to "Currently Reading" if 5%+ progress
 ```
 
 ### 4. Test Your Setup
@@ -139,7 +142,16 @@ pages = (percentage / 100) × total_pages
 ```
 Example: 71.5% of a 496-page book = page 354
 
+### Progress Threshold
+The tool uses a minimum progress threshold to keep your "Currently Reading" list clean:
+
+- **Above threshold** (default: 5%): Added to "Currently Reading" + progress synced
+- **Below threshold**: Added to "Want to Read" + progress synced
+
+This ensures all your started books are tracked while keeping your active reading list focused on books with meaningful progress.
+
 ### Smart Features
+- **Progress Threshold**: Only adds books to "Currently Reading" if you've made meaningful progress (default: 5%)
 - **Auto-complete**: Books 95%+ done are marked "Read"
 - **Cache**: Remembers your book editions for faster syncing
 - **Progress bars**: Shows you what's happening
