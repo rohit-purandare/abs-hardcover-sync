@@ -2,11 +2,14 @@
 Audiobookshelf API Client - Handles all interactions with Audiobookshelf server
 """
 
+import concurrent.futures
 import logging
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
 
 import requests
+
+MAX_PARALLEL_WORKERS = 8  # Can be made configurable
 
 
 class AudiobookshelfClient:
@@ -71,21 +74,42 @@ class AudiobookshelfClient:
             # Combine progress items with other books that might need syncing
             books_to_sync = []
 
-            # Add all books with detailed progress info
-            for item in progress_items:
-                detailed_item = self._get_library_item_details(item["id"])
-                if detailed_item:
-                    books_to_sync.append(detailed_item)
+            # --- PARALLEL FETCH START ---
+            def safe_get_details(item_id):
+                try:
+                    return self._get_library_item_details(item_id)
+                except Exception as e:
+                    self.logger.error(f"Error fetching details for {item_id}: {str(e)}")
+                    return None
 
-            # Add other books (with 0% or unknown progress) for potential syncing
-            for book in all_books:
-                if book["id"] not in progress_item_ids:
-                    detailed_item = self._get_library_item_details(book["id"])
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=MAX_PARALLEL_WORKERS
+            ) as executor:
+                # Fetch details for progress items in parallel
+                progress_futures = {
+                    executor.submit(safe_get_details, item["id"]): item["id"]
+                    for item in progress_items
+                }
+                for future in concurrent.futures.as_completed(progress_futures):
+                    detailed_item = future.result()
                     if detailed_item:
-                        # Ensure these books have 0% progress if not set
+                        books_to_sync.append(detailed_item)
+
+                # Fetch details for other books (with 0% or unknown progress) in parallel
+                other_books = [
+                    book for book in all_books if book["id"] not in progress_item_ids
+                ]
+                other_futures = {
+                    executor.submit(safe_get_details, book["id"]): book["id"]
+                    for book in other_books
+                }
+                for future in concurrent.futures.as_completed(other_futures):
+                    detailed_item = future.result()
+                    if detailed_item:
                         if "progress_percentage" not in detailed_item:
                             detailed_item["progress_percentage"] = 0.0
                         books_to_sync.append(detailed_item)
+            # --- PARALLEL FETCH END ---
 
             self.logger.info(
                 f"Found {len(books_to_sync)} total books to check for sync"
