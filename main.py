@@ -59,7 +59,7 @@ def setup_logging(verbose: bool = False) -> None:
         logging.getLogger("hardcover_client").setLevel(logging.WARNING)
 
 
-def sync_once(sync_manager: SyncManager) -> bool:
+def sync_once(sync_manager: SyncManager) -> dict:
     """Perform a one-time synchronization"""
     logger = logging.getLogger(__name__)
     logger.info("Starting one-time sync...")
@@ -90,11 +90,12 @@ def sync_once(sync_manager: SyncManager) -> bool:
 
         logger.info("=" * 50)
 
-        return bool(result["books_synced"] > 0 or result["books_completed"] > 0)
+        # Return the full result for CLI summary
+        return result
 
     except Exception as e:
         logger.error(f"Sync failed: {str(e)}")
-        return False
+        return {"errors": [str(e)], "books_synced": 0, "books_completed": 0}
 
 
 def test_connections(sync_manager: SyncManager) -> bool:
@@ -309,14 +310,19 @@ def run_sync_interactive(dry_run: bool = False, verbose: bool = False) -> None:
     try:
         config = Config()
         sync_manager = SyncManager(config, dry_run=dry_run)
-        success = sync_once(sync_manager)
+        result = sync_once(sync_manager)
 
-        if success:
-            print("\n✅ Sync completed successfully!")
-        else:
+        if result["errors"]:
             print("\n❌ Sync completed with errors. Check logs for details.")
-
-        input("\nPress Enter to continue...")
+            sys.exit(1)
+        elif result["books_synced"] > 0 or result["books_completed"] > 0:
+            print(
+                f"\n✅ Sync completed successfully. {result['books_synced'] + result['books_completed']} books updated."
+            )
+            sys.exit(0)
+        else:
+            print("\n✅ Sync completed successfully. No changes needed.")
+            sys.exit(0)
 
     except Exception as e:
         print(f"\n❌ Sync failed: {str(e)}")
@@ -546,8 +552,18 @@ def main() -> None:
             sys.exit(0 if success else 1)
 
         elif args.command == "sync":
-            success = sync_once(sync_manager)
-            sys.exit(0 if success else 1)
+            result = sync_once(sync_manager)
+            if result["errors"]:
+                print("\n❌ Sync completed with errors. Check logs for details.")
+                sys.exit(1)
+            elif result["books_synced"] > 0 or result["books_completed"] > 0:
+                print(
+                    f"\n✅ Sync completed successfully. {result['books_synced'] + result['books_completed']} books updated."
+                )
+                sys.exit(0)
+            else:
+                print("\n✅ Sync completed successfully. No changes needed.")
+                sys.exit(0)
 
     except KeyboardInterrupt:
         logger.info("Operation cancelled by user")

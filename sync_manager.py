@@ -632,6 +632,20 @@ class SyncManager:
         if isbn and edition:
             self.edition_cache.store_mapping(isbn, title, edition["id"])
 
+        # Get current book status from Hardcover to check if status needs updating
+        current_progress = self.hardcover.get_book_current_progress(user_book_id)
+        current_user_book = None
+
+        if current_progress and current_progress.get("user_book"):
+            current_user_book = current_progress["user_book"]
+            # Check if we need to update the book status based on progress threshold
+            status_result = self._check_and_update_book_status(
+                current_user_book, progress_percent, title
+            )
+            # Log status check result if there was a change
+            if status_result["status"] in ["status_updated", "would_update_status"]:
+                self.logger.info(f"Status check: {status_result['reason']}")
+
         # Check if book is already completed (95%+ progress)
         if progress_percent >= 95:
             return self._handle_completion_status(
