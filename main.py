@@ -394,10 +394,11 @@ def run_cache_interactive() -> None:
             print("\nCache Management Options:")
             print("1. 📊 Show cache statistics")
             print("2. 🗑️  Clear book cache")
-            print("3. 📤 Export cache to JSON")
-            print("4. 🔙 Back to main menu")
+            print("3. 🔄 Clear edition mappings (keep progress)")
+            print("4. 📤 Export cache to JSON")
+            print("5. 🔙 Back to main menu")
 
-            choice = input("\nEnter your choice (1-4): ").strip()
+            choice = input("\nEnter your choice (1-5): ").strip()
 
             if choice == "1":
                 # Show cache statistics
@@ -431,6 +432,31 @@ def run_cache_interactive() -> None:
                 input("\nPress Enter to continue...")
 
             elif choice == "3":
+                # Clear edition mappings (keep progress)
+                confirm = (
+                    input(
+                        "🔄 Are you sure you want to clear edition mappings? This will force re-syncing of editions and authors but keep progress data. (y/N): "
+                    )
+                    .strip()
+                    .lower()
+                )
+                if confirm in ["y", "yes"]:
+                    # Clear only edition mappings and author data
+                    with sync_manager.book_cache._get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "UPDATE books SET edition_id = NULL, author = NULL"
+                        )
+                        affected_rows = cursor.rowcount
+                        conn.commit()
+
+                    print(f"✅ Edition mappings cleared for {affected_rows} books!")
+                    print("📝 Next sync will re-fetch editions and author data.")
+                else:
+                    print("❌ Edition mapping clear cancelled.")
+                input("\nPress Enter to continue...")
+
+            elif choice == "4":
                 # Export cache to JSON
                 filename = input(
                     "Enter export filename (default: book_cache_export.json): "
@@ -445,7 +471,7 @@ def run_cache_interactive() -> None:
                     print(f"❌ Export failed: {str(e)}")
                 input("\nPress Enter to continue...")
 
-            elif choice == "4":
+            elif choice == "5":
                 # Back to main menu
                 break
             else:
@@ -466,8 +492,8 @@ def main() -> None:
     parser.add_argument(
         "command",
         nargs="?",  # Make command optional
-        choices=["sync", "test", "config"],
-        help="Command to execute: sync (one-time), test (connections), or config (show configuration)",
+        choices=["sync", "test", "config", "clear-cache", "clear-editions"],
+        help="Command to execute: sync (one-time), test (connections), config (show configuration), clear-cache (clear all cache), or clear-editions (clear edition mappings)",
     )
 
     parser.add_argument(
@@ -541,6 +567,41 @@ def main() -> None:
             else:
                 print("\n✅ Sync completed successfully. No changes needed.")
                 sys.exit(0)
+
+        elif args.command == "clear-cache":
+            confirm = (
+                input("🗑️  Are you sure you want to clear the book cache? (y/N): ")
+                .strip()
+                .lower()
+            )
+            if confirm in ["y", "yes"]:
+                sync_manager.clear_cache()
+                print("✅ Book cache cleared successfully!")
+                print("📝 Next sync will be a full resync.")
+            else:
+                print("❌ Book cache clear cancelled.")
+            sys.exit(0)
+
+        elif args.command == "clear-editions":
+            confirm = (
+                input(
+                    "🔄 Are you sure you want to clear edition mappings? This will force re-syncing of editions and authors but keep progress data. (y/N): "
+                )
+                .strip()
+                .lower()
+            )
+            if confirm in ["y", "yes"]:
+                with sync_manager.book_cache._get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE books SET edition_id = NULL, author = NULL")
+                    affected_rows = cursor.rowcount
+                    conn.commit()
+
+                print(f"✅ Edition mappings cleared for {affected_rows} books!")
+                print("📝 Next sync will re-fetch editions and author data.")
+            else:
+                print("❌ Edition mapping clear cancelled.")
+            sys.exit(0)
 
     except KeyboardInterrupt:
         logger.info("Operation cancelled by user")

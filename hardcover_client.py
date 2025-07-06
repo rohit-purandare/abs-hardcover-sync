@@ -91,6 +91,12 @@ class HardcoverClient:
                     book {
                         id
                         title
+                        contributions(where: {contributable_type: {_eq: "Book"}}) {
+                            author {
+                                id
+                                name
+                            }
+                        }
                         editions {
                             id
                             isbn_10

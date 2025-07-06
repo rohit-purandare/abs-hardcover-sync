@@ -41,6 +41,7 @@ class BookCache:
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         isbn TEXT NOT NULL,
                         title TEXT NOT NULL,
+                        author TEXT,
                         edition_id INTEGER,
                         progress_percent REAL,
                         last_synced TEXT,
@@ -50,6 +51,14 @@ class BookCache:
                     )
                 """
                 )
+
+                # Add author column if it doesn't exist (for existing databases)
+                try:
+                    cursor.execute("ALTER TABLE books ADD COLUMN author TEXT")
+                    self.logger.debug("Added author column to existing database")
+                except sqlite3.OperationalError:
+                    # Column already exists
+                    pass
 
                 # Create indexes for fast lookups
                 cursor.execute(
@@ -61,6 +70,7 @@ class BookCache:
                 cursor.execute(
                     "CREATE INDEX IF NOT EXISTS idx_progress ON books(progress_percent)"
                 )
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_author ON books(author)")
 
                 conn.commit()
                 self.logger.debug("Database schema initialized")
@@ -112,7 +122,9 @@ class BookCache:
             self.logger.error(f"Error getting edition for {title}: {str(e)}")
             return None
 
-    def store_edition_mapping(self, isbn: str, title: str, edition_id: int) -> None:
+    def store_edition_mapping(
+        self, isbn: str, title: str, edition_id: int, author: Optional[str] = None
+    ) -> None:
         """
         Store edition mapping in cache
 
@@ -120,6 +132,7 @@ class BookCache:
             isbn: Normalized ISBN
             title: Book title
             edition_id: Edition ID to cache
+            author: Author name (optional)
         """
         try:
             with self._get_connection() as conn:
@@ -130,15 +143,15 @@ class BookCache:
                 cursor.execute(
                     """
                     INSERT OR REPLACE INTO books 
-                    (isbn, title, edition_id, updated_at) 
-                    VALUES (?, ?, ?, ?)
+                    (isbn, title, author, edition_id, updated_at) 
+                    VALUES (?, ?, ?, ?, ?)
                 """,
-                    (isbn, normalized_title, edition_id, current_time),
+                    (isbn, normalized_title, author, edition_id, current_time),
                 )
 
                 conn.commit()
                 self.logger.debug(
-                    f"Cached edition mapping for {title}: {isbn} -> {edition_id}"
+                    f"Cached edition mapping for {title}: {isbn} -> {edition_id} (author: {author})"
                 )
 
         except Exception as e:
@@ -442,6 +455,50 @@ class BookCache:
 
         except Exception as e:
             self.logger.error(f"Error exporting cache: {str(e)}")
+
+    def get_books_by_author(self, author_name: str) -> List[Dict[str, Any]]:
+        """
+        Get all books by a specific author
+
+        Args:
+            author_name: Name of the author to search for
+
+        Returns:
+            List of book records with author, title, isbn, and progress info
+        """
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT isbn, title, author, edition_id, progress_percent, last_synced
+                    FROM books 
+                    WHERE author = ?
+                    ORDER BY title
+                """,
+                    (author_name,),
+                )
+                results = cursor.fetchall()
+
+                books = []
+                for row in results:
+                    books.append(
+                        {
+                            "isbn": row["isbn"],
+                            "title": row["title"],
+                            "author": row["author"],
+                            "edition_id": row["edition_id"],
+                            "progress_percent": row["progress_percent"],
+                            "last_synced": row["last_synced"],
+                        }
+                    )
+
+                self.logger.debug(f"Found {len(books)} books by {author_name}")
+                return books
+
+        except Exception as e:
+            self.logger.error(f"Error getting books by author {author_name}: {str(e)}")
+            return []
 
 
 class SyncManager:
@@ -973,7 +1030,8 @@ class SyncManager:
 
         # Store the selected edition in cache for future use
         if isbn and edition:
-            self.book_cache.store_edition_mapping(isbn, title, edition["id"])
+            author = self._extract_author_from_data(abs_book, hardcover_match)
+            self.book_cache.store_edition_mapping(isbn, title, edition["id"], author)
 
         # Check if we have cached progress and can skip API calls
         cached_progress = None
@@ -1363,6 +1421,10 @@ class SyncManager:
         """Export cache data to JSON for backup/debugging"""
         self.book_cache.export_to_json(filename)
 
+    def get_books_by_author(self, author_name: str) -> List[Dict[str, Any]]:
+        """Get all books by a specific author from the cache"""
+        return self.book_cache.get_books_by_author(author_name)
+
     def _get_cached_book_status(self, user_book_id: int, title: str) -> Optional[Dict]:
         """Get cached book status to avoid API calls"""
         # For now, we'll always make the API call, but we could extend the cache
@@ -1490,3 +1552,51 @@ class SyncManager:
             "title": title,
             "reason": "No status change needed",
         }
+
+    def _extract_author_from_data(
+        self, abs_book: Dict, hardcover_match: Dict
+    ) -> Optional[str]:
+        """
+        Extract author information from Hardcover data (primary) or Audiobookshelf data (fallback)
+
+        Args:
+            abs_book: Audiobookshelf book data
+            hardcover_match: Hardcover book match data
+
+        Returns:
+            Author name if found, None otherwise
+        """
+        # Try to get author from Hardcover data first (better quality)
+        try:
+            book_data = hardcover_match.get("book", {})
+            contributions = book_data.get("contributions", [])
+
+            if contributions and len(contributions) > 0:
+                # Get the first author (primary author)
+                author_data = contributions[0].get("author")
+                if author_data and author_data.get("name"):
+                    author_name = author_data["name"]
+                    self.logger.debug(f"Extracted author from Hardcover: {author_name}")
+                    return author_name
+        except Exception as e:
+            self.logger.debug(f"Could not extract author from Hardcover data: {str(e)}")
+
+        # Fallback to Audiobookshelf data
+        try:
+            metadata = abs_book.get("media", {}).get("metadata", {})
+            authors = metadata.get("authors", [])
+
+            if authors and len(authors) > 0:
+                # Get the first author (primary author)
+                author = authors[0].get("name")
+                if author:
+                    self.logger.debug(
+                        f"Extracted author from Audiobookshelf (fallback): {author}"
+                    )
+                    return author
+        except Exception as e:
+            self.logger.debug(
+                f"Could not extract author from Audiobookshelf data: {str(e)}"
+            )
+
+        return None
