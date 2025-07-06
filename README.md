@@ -45,8 +45,8 @@ Syncing Project Hail Mary: 71.5% → page 354/496
 
 1. **Download the code**
    ```bash
-   git clone https://github.com/rohit-purandare/abs-hardcover-sync.git
-   cd abs-hardcover-sync
+   git clone https://github.com/rohit-purandare/audiobookshelf-hardcover-sync.git
+cd audiobookshelf-hardcover-sync
    ```
 
 2. **Install dependencies**
