@@ -27,6 +27,12 @@ Syncing Project Hail Mary: 71.5% → page 354/496
 - **Interactive Menu**: Easy-to-use menu system
 - **Cache System**: Remembers your book editions for faster syncing
 - **Progress Bars**: Visual feedback during syncing
+- **Parallel processing for fast syncs:**
+  - Audiobookshelf API calls (book details/progress) are fetched in parallel for up to 2x speedup
+  - Hardcover API status/progress updates are performed in parallel with built-in rate limiting (max 50 requests/minute, 5 workers)
+  - Typical syncs are now 2–4x faster than before
+- **Robust error handling and detailed logging**
+- **GitHub Actions CI/CD, security scanning, and pre-commit hooks**
 
 ## Requirements
 

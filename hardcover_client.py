@@ -4,10 +4,38 @@ Hardcover API Client - Handles all interactions with Hardcover GraphQL API
 
 import json
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import requests
+
+MAX_PARALLEL_WORKERS = 5  # Conservative default for rate limiting
+RATE_LIMIT_PER_MINUTE = 50
+RATE_LIMIT_DELAY = 60.0 / RATE_LIMIT_PER_MINUTE  # 1.2 seconds between requests
+
+
+class RateLimiter:
+    """Simple rate limiter for API calls"""
+
+    def __init__(self, max_requests_per_minute: int = RATE_LIMIT_PER_MINUTE):
+        self.max_requests = max_requests_per_minute
+        self.delay = 60.0 / max_requests_per_minute
+        self.last_request_time = 0
+        self.logger = logging.getLogger(__name__)
+
+    def wait_if_needed(self):
+        """Wait if needed to respect rate limit"""
+        current_time = time.time()
+        time_since_last = current_time - self.last_request_time
+
+        if time_since_last < self.delay:
+            sleep_time = self.delay - time_since_last
+            self.logger.debug(f"Rate limiting: sleeping for {sleep_time:.3f}s")
+            time.sleep(sleep_time)
+
+        self.last_request_time = time.time()
 
 
 class HardcoverClient:
@@ -17,6 +45,7 @@ class HardcoverClient:
         self.token = token
         self.api_url = "https://api.hardcover.app/v1/graphql"
         self.logger = logging.getLogger(__name__)
+        self.rate_limiter = RateLimiter()
 
         # Setup session with authentication
         self.session = requests.Session()
@@ -565,54 +594,34 @@ class HardcoverClient:
     def _execute_query(
         self, query: str, variables: Optional[Dict] = None
     ) -> Optional[Dict]:
-        """
-        Execute a GraphQL query against Hardcover API
+        """Execute GraphQL query with rate limiting"""
+        self.rate_limiter.wait_if_needed()
 
-        Args:
-            query: GraphQL query string
-            variables: Optional variables for the query
-
-        Returns:
-            Query result data or None if failed
-        """
-        payload = {"query": query, "variables": variables or {}}
+        payload: Dict[str, Any] = {"query": query}
+        if variables:
+            payload["variables"] = variables
 
         try:
             response = self.session.post(self.api_url, json=payload)
+            response.raise_for_status()
 
-            self.logger.debug(f"GraphQL request: {response.status_code}")
+            data = response.json()
 
-            if response.status_code == 200:
-                result = response.json()
-
-                # Check for GraphQL errors
-                if "errors" in result:
-                    self.logger.error(f"GraphQL errors: {result['errors']}")
-                    return None
-
-                return result.get("data")
-
-            elif response.status_code == 401:
-                self.logger.error(
-                    "Authentication failed - check your Hardcover API token"
-                )
+            # Check for GraphQL errors
+            if "errors" in data:
+                self.logger.error(f"GraphQL errors: {data['errors']}")
                 return None
 
-            elif response.status_code == 429:
-                self.logger.warning("Rate limit exceeded - please wait before retrying")
-                return None
-
-            else:
-                self.logger.error(
-                    f"API request failed: {response.status_code} - {response.text}"
-                )
-                return None
+            return data.get("data")
 
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Request failed: {str(e)}")
             return None
         except json.JSONDecodeError as e:
-            self.logger.error(f"Failed to parse JSON response: {str(e)}")
+            self.logger.error(f"Invalid JSON response: {str(e)}")
+            return None
+        except Exception as e:
+            self.logger.error(f"Unexpected error: {str(e)}")
             return None
 
     def get_current_user(self) -> Optional[Dict]:
@@ -634,3 +643,120 @@ class HardcoverClient:
         except Exception as e:
             self.logger.error(f"Error getting current user: {str(e)}")
             return None
+
+    def batch_update_status(self, updates: List[Dict[str, int]]) -> Dict[str, Any]:
+        """
+        Update status for multiple books in parallel
+
+        Args:
+            updates: List of dicts with 'user_book_id' and 'status_id' keys
+
+        Returns:
+            Dict with results: {'success': int, 'failed': int, 'errors': List[str]}
+        """
+        if not updates:
+            return {"success": 0, "failed": 0, "errors": []}
+
+        self.logger.info(f"Batch updating status for {len(updates)} books")
+
+        def update_single_status(update: Dict[str, int]) -> Dict[str, Any]:
+            """Update status for a single book"""
+            try:
+                success = self.update_book_status(
+                    update["user_book_id"], update["status_id"]
+                )
+                return {
+                    "user_book_id": update["user_book_id"],
+                    "status_id": update["status_id"],
+                    "success": success,
+                    "error": None,
+                }
+            except Exception as e:
+                return {
+                    "user_book_id": update["user_book_id"],
+                    "status_id": update["status_id"],
+                    "success": False,
+                    "error": str(e),
+                }
+
+        results = {"success": 0, "failed": 0, "errors": []}
+
+        with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
+            futures = [
+                executor.submit(update_single_status, update) for update in updates
+            ]
+
+            for future in as_completed(futures):
+                result = future.result()
+                if result["success"]:
+                    results["success"] += 1
+                else:
+                    results["failed"] += 1
+                    if result["error"]:
+                        results["errors"].append(
+                            f"Book {result['user_book_id']}: {result['error']}"
+                        )
+
+        self.logger.info(
+            f"Batch status update completed: {results['success']} success, {results['failed']} failed"
+        )
+        return results
+
+    def batch_update_progress(self, updates: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Update progress for multiple books in parallel
+
+        Args:
+            updates: List of dicts with 'user_book_id', 'current_page', 'progress_percentage', 'edition_id' keys
+
+        Returns:
+            Dict with results: {'success': int, 'failed': int, 'errors': List[str]}
+        """
+        if not updates:
+            return {"success": 0, "failed": 0, "errors": []}
+
+        self.logger.info(f"Batch updating progress for {len(updates)} books")
+
+        def update_single_progress(update: Dict[str, Any]) -> Dict[str, Any]:
+            """Update progress for a single book"""
+            try:
+                success = self.update_reading_progress(
+                    update["user_book_id"],
+                    update["current_page"],
+                    update["progress_percentage"],
+                    update["edition_id"],
+                )
+                return {
+                    "user_book_id": update["user_book_id"],
+                    "success": success,
+                    "error": None,
+                }
+            except Exception as e:
+                return {
+                    "user_book_id": update["user_book_id"],
+                    "success": False,
+                    "error": str(e),
+                }
+
+        results = {"success": 0, "failed": 0, "errors": []}
+
+        with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
+            futures = [
+                executor.submit(update_single_progress, update) for update in updates
+            ]
+
+            for future in as_completed(futures):
+                result = future.result()
+                if result["success"]:
+                    results["success"] += 1
+                else:
+                    results["failed"] += 1
+                    if result["error"]:
+                        results["errors"].append(
+                            f"Book {result['user_book_id']}: {result['error']}"
+                        )
+
+        self.logger.info(
+            f"Batch progress update completed: {results['success']} success, {results['failed']} failed"
+        )
+        return results
