@@ -52,6 +52,14 @@ class Config:
         self.MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
         self.RETRY_DELAY = int(os.getenv("RETRY_DELAY_SECONDS", "5"))
 
+        # Performance optimization settings
+        self.ENABLE_PARALLEL = os.getenv("ENABLE_PARALLEL", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        self.MAX_WORKERS = int(os.getenv("MAX_WORKERS", "3"))
+
         self.logger.info("Configuration loaded from environment variables")
 
     def _validate_config(self) -> None:

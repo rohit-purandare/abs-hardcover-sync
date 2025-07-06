@@ -70,9 +70,11 @@ coverage/
 .cache/
 .parcel-cache/
 
-# Application cache files
-.edition_cache.json
+# Cache files
+.book_cache.json
 .progress_cache.json
+.edition_cache.json
+.book_cache.db
 
 # Type checking cache
 .mypy_cache/

@@ -2,10 +2,13 @@
 Sync Manager - Coordinates synchronization between Audiobookshelf and Hardcover
 """
 
+import concurrent.futures
 import json
 import logging
 import math
 import os
+import sqlite3
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -16,41 +19,68 @@ from hardcover_client import HardcoverClient
 from utils import calculate_progress_percentage, normalize_isbn
 
 
-class EditionMappingCache:
-    """Cache for storing edition mappings to improve performance and consistency"""
+class BookCache:
+    """SQLite-based cache for storing book edition mappings and progress tracking"""
 
-    def __init__(self, cache_file: str = ".edition_cache.json"):
+    def __init__(self, cache_file: str = ".book_cache.db"):
         self.cache_file = cache_file
         self.logger = logging.getLogger(__name__)
-        self.mappings = self._load_cache()
-        self.logger.debug(f"Loaded {len(self.mappings)} edition mappings from cache")
+        self._init_database()
+        self.logger.debug(f"SQLite cache initialized: {cache_file}")
 
-    def _load_cache(self) -> Dict[str, int]:
-        """Load edition mappings from cache file"""
+    def _init_database(self) -> None:
+        """Initialize SQLite database with schema"""
         try:
-            if os.path.exists(self.cache_file):
-                with open(self.cache_file, "r") as f:
-                    data = json.load(f)
-                    # Validate cache structure
-                    if isinstance(data, dict):
-                        return data
-                    else:
-                        self.logger.warning("Invalid cache format, starting fresh")
-                        return {}
-            return {}
-        except Exception as e:
-            self.logger.warning(f"Failed to load edition cache: {str(e)}")
-            return {}
+            with sqlite3.connect(self.cache_file) as conn:
+                cursor = conn.cursor()
 
-    def _save_cache(self) -> None:
-        """Save edition mappings to cache file"""
-        try:
-            with open(self.cache_file, "w") as f:
-                json.dump(self.mappings, f, indent=2)
-            self.logger.debug(f"Saved {len(self.mappings)} edition mappings to cache")
-        except Exception as e:
-            self.logger.error(f"Failed to save edition cache: {str(e)}")
+                # Create books table
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS books (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        isbn TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        edition_id INTEGER,
+                        progress_percent REAL,
+                        last_synced TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(isbn, title)
+                    )
+                """
+                )
 
+                # Create indexes for fast lookups
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_isbn_title ON books(isbn, title)"
+                )
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_last_synced ON books(last_synced)"
+                )
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_progress ON books(progress_percent)"
+                )
+
+                conn.commit()
+                self.logger.debug("Database schema initialized")
+
+        except Exception as e:
+            self.logger.error(f"Failed to initialize database: {str(e)}")
+            raise
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get database connection with proper configuration"""
+        conn = sqlite3.connect(self.cache_file)
+        conn.row_factory = sqlite3.Row  # Enable dict-like access to rows
+        return conn
+
+    def _create_cache_key(self, isbn: str, title: str) -> Tuple[str, str]:
+        """Create normalized cache key for a book"""
+        normalized_title = title.lower().strip()
+        return isbn, normalized_title
+
+    # Edition-related methods
     def get_edition_for_book(self, isbn: str, title: str) -> Optional[int]:
         """
         Get cached edition ID for a book
@@ -62,13 +92,27 @@ class EditionMappingCache:
         Returns:
             Edition ID if found in cache, None otherwise
         """
-        key = self._create_cache_key(isbn, title)
-        edition_id = self.mappings.get(key)
-        if edition_id:
-            self.logger.debug(f"Cache hit for {title}: edition {edition_id}")
-        return edition_id
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT edition_id FROM books WHERE isbn = ? AND title = ?",
+                    (isbn, title.lower().strip()),
+                )
+                result = cursor.fetchone()
 
-    def store_mapping(self, isbn: str, title: str, edition_id: int) -> None:
+                if result and result["edition_id"]:
+                    self.logger.debug(
+                        f"Cache hit for {title}: edition {result['edition_id']}"
+                    )
+                    return result["edition_id"]
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Error getting edition for {title}: {str(e)}")
+            return None
+
+    def store_edition_mapping(self, isbn: str, title: str, edition_id: int) -> None:
         """
         Store edition mapping in cache
 
@@ -77,77 +121,30 @@ class EditionMappingCache:
             title: Book title
             edition_id: Edition ID to cache
         """
-        key = self._create_cache_key(isbn, title)
-        self.mappings[key] = edition_id
-        self.logger.debug(f"Cached edition mapping for {title}: {isbn} -> {edition_id}")
-        self._save_cache()
-
-    def _create_cache_key(self, isbn: str, title: str) -> str:
-        """Create a consistent cache key for a book"""
-        # Normalize title for consistent key generation
-        normalized_title = title.lower().strip()
-        return f"{isbn}_{normalized_title}"
-
-    def clear_cache(self) -> None:
-        """Clear all cached mappings"""
-        self.mappings = {}
-        if os.path.exists(self.cache_file):
-            os.remove(self.cache_file)
-        self.logger.info("Edition cache cleared")
-
-    def get_cache_stats(self) -> Dict[str, int]:
-        """Get cache statistics"""
-        return {
-            "total_mappings": len(self.mappings),
-            "cache_file_size": (
-                os.path.getsize(self.cache_file)
-                if os.path.exists(self.cache_file)
-                else 0
-            ),
-        }
-
-
-class ProgressTrackingCache:
-    """Cache for tracking last synced progress to avoid unnecessary syncs"""
-
-    def __init__(self, cache_file: str = ".progress_cache.json"):
-        self.cache_file = cache_file
-        self.logger = logging.getLogger(__name__)
-        self.progress_data = self._load_cache()
-        self.logger.debug(
-            f"Loaded {len(self.progress_data)} progress records from cache"
-        )
-
-    def _load_cache(self) -> Dict[str, Dict]:
-        """Load progress tracking data from cache file"""
         try:
-            if os.path.exists(self.cache_file):
-                with open(self.cache_file, "r") as f:
-                    data = json.load(f)
-                    # Validate cache structure
-                    if isinstance(data, dict):
-                        return data
-                    else:
-                        self.logger.warning(
-                            "Invalid progress cache format, starting fresh"
-                        )
-                        return {}
-            return {}
-        except Exception as e:
-            self.logger.warning(f"Failed to load progress cache: {str(e)}")
-            return {}
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                normalized_title = title.lower().strip()
+                current_time = datetime.now().isoformat()
 
-    def _save_cache(self) -> None:
-        """Save progress tracking data to cache file"""
-        try:
-            with open(self.cache_file, "w") as f:
-                json.dump(self.progress_data, f, indent=2)
-            self.logger.debug(
-                f"Saved {len(self.progress_data)} progress records to cache"
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to save progress cache: {str(e)}")
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO books 
+                    (isbn, title, edition_id, updated_at) 
+                    VALUES (?, ?, ?, ?)
+                """,
+                    (isbn, normalized_title, edition_id, current_time),
+                )
 
+                conn.commit()
+                self.logger.debug(
+                    f"Cached edition mapping for {title}: {isbn} -> {edition_id}"
+                )
+
+        except Exception as e:
+            self.logger.error(f"Error storing edition mapping for {title}: {str(e)}")
+
+    # Progress-related methods
     def get_last_progress(self, isbn: str, title: str) -> Optional[float]:
         """
         Get last synced progress for a book
@@ -159,14 +156,26 @@ class ProgressTrackingCache:
         Returns:
             Last synced progress percentage if found, None otherwise
         """
-        key = self._create_cache_key(isbn, title)
-        progress_record = self.progress_data.get(key)
-        if progress_record:
-            progress = progress_record.get("progress_percent", 0)
-            if isinstance(progress, (int, float)):
-                self.logger.debug(f"Found last progress for {title}: {progress:.1f}%")
-                return float(progress)
-        return None
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT progress_percent FROM books WHERE isbn = ? AND title = ?",
+                    (isbn, title.lower().strip()),
+                )
+                result = cursor.fetchone()
+
+                if result and result["progress_percent"] is not None:
+                    progress = float(result["progress_percent"])
+                    self.logger.debug(
+                        f"Found last progress for {title}: {progress:.1f}%"
+                    )
+                    return progress
+                return None
+
+        except Exception as e:
+            self.logger.error(f"Error getting progress for {title}: {str(e)}")
+            return None
 
     def store_progress(self, isbn: str, title: str, progress_percent: float) -> None:
         """
@@ -177,15 +186,34 @@ class ProgressTrackingCache:
             title: Book title
             progress_percent: Progress percentage to cache
         """
-        key = self._create_cache_key(isbn, title)
-        self.progress_data[key] = {
-            "progress_percent": progress_percent,
-            "last_synced": datetime.now().isoformat(),
-            "title": title,
-            "isbn": isbn,
-        }
-        self.logger.debug(f"Cached progress for {title}: {progress_percent:.1f}%")
-        self._save_cache()
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                normalized_title = title.lower().strip()
+                current_time = datetime.now().isoformat()
+
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO books 
+                    (isbn, title, progress_percent, last_synced, updated_at) 
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+                    (
+                        isbn,
+                        normalized_title,
+                        progress_percent,
+                        current_time,
+                        current_time,
+                    ),
+                )
+
+                conn.commit()
+                self.logger.debug(
+                    f"Cached progress for {title}: {progress_percent:.1f}%"
+                )
+
+        except Exception as e:
+            self.logger.error(f"Error storing progress for {title}: {str(e)}")
 
     def has_progress_changed(
         self, isbn: str, title: str, current_progress: float
@@ -222,58 +250,232 @@ class ProgressTrackingCache:
 
         return progress_changed
 
-    def _create_cache_key(self, isbn: str, title: str) -> str:
-        """Create a consistent cache key for a book"""
-        # Normalize title for consistent key generation
-        normalized_title = title.lower().strip()
-        return f"{isbn}_{normalized_title}"
-
+    # Cache management methods
     def clear_cache(self) -> None:
-        """Clear all cached progress data"""
-        self.progress_data = {}
-        if os.path.exists(self.cache_file):
-            os.remove(self.cache_file)
-        self.logger.info("Progress cache cleared")
+        """Clear all cached data"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM books")
+                conn.commit()
+                self.logger.info("Book cache cleared")
+        except Exception as e:
+            self.logger.error(f"Error clearing cache: {str(e)}")
 
     def get_cache_stats(self) -> Dict[str, int]:
         """Get cache statistics"""
-        return {
-            "total_records": len(self.progress_data),
-            "cache_file_size": (
-                os.path.getsize(self.cache_file)
-                if os.path.exists(self.cache_file)
-                else 0
-            ),
-        }
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get total books
+                cursor.execute("SELECT COUNT(*) as total FROM books")
+                total_books = cursor.fetchone()["total"]
+
+                # Get books with editions
+                cursor.execute(
+                    "SELECT COUNT(*) as count FROM books WHERE edition_id IS NOT NULL"
+                )
+                books_with_editions = cursor.fetchone()["count"]
+
+                # Get books with progress
+                cursor.execute(
+                    "SELECT COUNT(*) as count FROM books WHERE progress_percent IS NOT NULL"
+                )
+                books_with_progress = cursor.fetchone()["count"]
+
+                # Get file size
+                cache_file_size = (
+                    os.path.getsize(self.cache_file)
+                    if os.path.exists(self.cache_file)
+                    else 0
+                )
+
+                return {
+                    "total_books": total_books,
+                    "books_with_editions": books_with_editions,
+                    "books_with_progress": books_with_progress,
+                    "cache_file_size": cache_file_size,
+                }
+
+        except Exception as e:
+            self.logger.error(f"Error getting cache stats: {str(e)}")
+            return {
+                "total_books": 0,
+                "books_with_editions": 0,
+                "books_with_progress": 0,
+                "cache_file_size": 0,
+            }
+
+    def migrate_from_old_caches(self) -> None:
+        """Migrate data from old JSON cache files"""
+        # Migrate edition cache
+        edition_cache_file = ".edition_cache.json"
+        if os.path.exists(edition_cache_file):
+            try:
+                with open(edition_cache_file, "r") as f:
+                    old_edition_data = json.load(f)
+
+                migrated_count = 0
+                with self._get_connection() as conn:
+                    cursor = conn.cursor()
+                    current_time = datetime.now().isoformat()
+
+                    for key, edition_data in old_edition_data.items():
+                        # Parse key format: "isbn_title"
+                        if "_" in key:
+                            isbn = key.split("_", 1)[0]
+                            title = key.split("_", 1)[1]
+
+                            # Handle both old formats: direct edition_id or nested object
+                            if isinstance(edition_data, dict):
+                                edition_id = edition_data.get("edition_id")
+                                # Use title from data if available, otherwise from key
+                                title = edition_data.get("title", title)
+                                isbn = edition_data.get("isbn", isbn)
+                            else:
+                                edition_id = edition_data
+
+                            if edition_id:
+                                cursor.execute(
+                                    """
+                                    INSERT OR REPLACE INTO books 
+                                    (isbn, title, edition_id, created_at, updated_at) 
+                                    VALUES (?, ?, ?, ?, ?)
+                                """,
+                                    (
+                                        isbn,
+                                        title,
+                                        edition_id,
+                                        current_time,
+                                        current_time,
+                                    ),
+                                )
+                                migrated_count += 1
+
+                    conn.commit()
+
+                self.logger.info(
+                    f"Migrated {migrated_count} edition mappings from old cache"
+                )
+
+                # Remove old cache file
+                os.remove(edition_cache_file)
+                self.logger.info("Removed old edition cache file")
+
+            except Exception as e:
+                self.logger.warning(f"Failed to migrate edition cache: {str(e)}")
+
+        # Migrate progress cache
+        progress_cache_file = ".progress_cache.json"
+        if os.path.exists(progress_cache_file):
+            try:
+                with open(progress_cache_file, "r") as f:
+                    old_progress_data = json.load(f)
+
+                migrated_count = 0
+                with self._get_connection() as conn:
+                    cursor = conn.cursor()
+                    current_time = datetime.now().isoformat()
+
+                    for key, progress_info in old_progress_data.items():
+                        # Parse key format: "isbn_title"
+                        if "_" in key:
+                            isbn = key.split("_", 1)[0]
+                            title = key.split("_", 1)[1]
+
+                            cursor.execute(
+                                """
+                                INSERT OR REPLACE INTO books 
+                                (isbn, title, progress_percent, last_synced, created_at, updated_at) 
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                                (
+                                    isbn,
+                                    title,
+                                    progress_info.get("progress_percent"),
+                                    progress_info.get("last_synced"),
+                                    current_time,
+                                    current_time,
+                                ),
+                            )
+                            migrated_count += 1
+
+                    conn.commit()
+
+                self.logger.info(
+                    f"Migrated {migrated_count} progress records from old cache"
+                )
+
+                # Remove old cache file
+                os.remove(progress_cache_file)
+                self.logger.info("Removed old progress cache file")
+
+            except Exception as e:
+                self.logger.warning(f"Failed to migrate progress cache: {str(e)}")
+
+    def export_to_json(self, filename: str = "book_cache_export.json") -> None:
+        """Export cache data to JSON for backup/debugging"""
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM books ORDER BY isbn, title")
+                rows = cursor.fetchall()
+
+                export_data = {}
+                for row in rows:
+                    key = f"{row['isbn']}_{row['title']}"
+                    export_data[key] = {
+                        "edition_id": row["edition_id"],
+                        "progress_percent": row["progress_percent"],
+                        "last_synced": row["last_synced"],
+                        "title": row["title"],
+                        "isbn": row["isbn"],
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                    }
+
+                with open(filename, "w") as f:
+                    json.dump(export_data, f, indent=2)
+
+                self.logger.info(f"Cache exported to {filename}")
+
+        except Exception as e:
+            self.logger.error(f"Error exporting cache: {str(e)}")
 
 
 class SyncManager:
     """Manages synchronization between Audiobookshelf and Hardcover"""
 
     def __init__(self, config: Any, dry_run: bool = False) -> None:
+        """Initialize SyncManager with configuration"""
         self.config = config
         self.dry_run = dry_run
+        self.min_progress_threshold = config.MIN_PROGRESS_THRESHOLD
         self.logger = logging.getLogger(__name__)
 
         # Initialize API clients
         self.audiobookshelf = AudiobookshelfClient(
             config.AUDIOBOOKSHELF_URL, config.AUDIOBOOKSHELF_TOKEN
         )
-
         self.hardcover = HardcoverClient(config.HARDCOVER_TOKEN)
 
-        # Initialize edition mapping cache
-        self.edition_cache = EditionMappingCache()
-
-        # Initialize progress tracking cache
-        self.progress_cache = ProgressTrackingCache()
+        # Initialize book cache and migrate from old caches
+        self.book_cache = BookCache()
+        self.book_cache.migrate_from_old_caches()
 
         # Get sync configuration
-        sync_config = config.get_sync_config()
-        self.min_progress_threshold = sync_config.get("min_progress_threshold", 5.0)
+        self.sync_config = config.get_sync_config()
+
+        # Performance optimization settings
+        self.max_workers = getattr(
+            config, "MAX_WORKERS", 3
+        )  # Limit concurrent API calls
+        self.enable_parallel = getattr(config, "ENABLE_PARALLEL", True)
+        self.timing_data = {}  # Store timing information
 
         self.logger.info(
-            f"SyncManager initialized (dry_run: {dry_run}, min_threshold: {self.min_progress_threshold}%)"
+            f"SyncManager initialized (dry_run: {dry_run}, min_threshold: {self.min_progress_threshold}%, parallel: {self.enable_parallel}, workers: {self.max_workers})"
         )
 
     def sync_progress(self) -> Dict[str, Any]:
@@ -339,100 +541,55 @@ class SyncManager:
             )
 
             # Process only books that have ISBNs and can potentially be synced
-            with tqdm(
-                total=len(syncable_books), desc="Syncing books", unit="book"
-            ) as pbar:
-                for abs_book in syncable_books:
-                    try:
-                        result["books_processed"] += 1
+            sync_start_time = time.time()
 
-                        # Get book title for progress display
-                        title = (
-                            abs_book.get("media", {})
-                            .get("metadata", {})
-                            .get("title", "Unknown")
-                        )
-                        progress_percent = abs_book.get("progress_percentage", 0)
+            if self.enable_parallel and len(syncable_books) > 1:
+                # Parallel processing
+                self.logger.info(
+                    f"Processing {len(syncable_books)} books in parallel with {self.max_workers} workers"
+                )
+                sync_results = self._sync_books_parallel(
+                    syncable_books, isbn_to_hardcover, result
+                )
+            else:
+                # Sequential processing with detailed timing
+                self.logger.info(f"Processing {len(syncable_books)} books sequentially")
+                sync_results = self._sync_books_sequential(
+                    syncable_books, isbn_to_hardcover, result
+                )
 
-                        # Update progress bar description
-                        pbar.set_description(
-                            f"Syncing: {title[:30]}{'...' if len(title) > 30 else ''}"
-                        )
-                        pbar.set_postfix(
-                            {
-                                "progress": f"{progress_percent:.1f}%",
-                                "processed": result["books_processed"],
-                            }
-                        )
+            # Process results and update counters
+            for sync_result in sync_results:
+                if sync_result["status"] == "synced":
+                    result["books_synced"] += 1
+                    self.logger.info(f"✓ Synced: {sync_result['title']}")
+                elif sync_result["status"] == "completed":
+                    result["books_completed"] += 1
+                    self.logger.info(f"✓ Completed: {sync_result['title']}")
+                elif sync_result["status"] == "auto_added":
+                    result["books_auto_added"] += 1
+                    self.logger.info(f"✓ Auto-added: {sync_result['title']}")
+                elif sync_result["status"] == "skipped":
+                    result["books_skipped"] += 1
+                    self.logger.info(
+                        f"⏭ Skipped: {sync_result['title']} - {sync_result['reason']}"
+                    )
+                elif sync_result["status"] == "failed":
+                    self.logger.error(
+                        f"✗ Failed: {sync_result['title']} - {sync_result['reason']}"
+                    )
 
-                        sync_result = self._sync_single_book(
-                            abs_book, isbn_to_hardcover
-                        )
+                result["details"].append(sync_result)
 
-                        if sync_result["status"] == "synced":
-                            result["books_synced"] += 1
-                            pbar.set_postfix(
-                                {
-                                    "status": "✓ Synced",
-                                    "progress": f"{progress_percent:.1f}%",
-                                }
-                            )
-                            self.logger.info(f"✓ Synced: {sync_result['title']}")
-                        elif sync_result["status"] == "completed":
-                            result["books_completed"] += 1
-                            pbar.set_postfix(
-                                {
-                                    "status": "✓ Completed",
-                                    "progress": f"{progress_percent:.1f}%",
-                                }
-                            )
-                            self.logger.info(f"✓ Completed: {sync_result['title']}")
-                        elif sync_result["status"] == "auto_added":
-                            result["books_auto_added"] += 1
-                            pbar.set_postfix(
-                                {
-                                    "status": "✓ Added",
-                                    "progress": f"{progress_percent:.1f}%",
-                                }
-                            )
-                            self.logger.info(f"✓ Auto-added: {sync_result['title']}")
-                        elif (
-                            sync_result["status"] == "skipped"
-                            and "threshold" in sync_result["reason"]
-                        ):
-                            result["books_skipped"] += 1
-                            pbar.set_postfix(
-                                {
-                                    "status": "⏭ Skipped",
-                                    "reason": sync_result["reason"][:20],
-                                }
-                            )
-                            self.logger.info(
-                                f"⏭ Skipped: {sync_result['title']} - {sync_result['reason']}"
-                            )
-                        elif sync_result["status"] == "failed":
-                            pbar.set_postfix(
-                                {
-                                    "status": "✗ Failed",
-                                    "error": sync_result["reason"][:20],
-                                }
-                            )
-                            self.logger.error(
-                                f"✗ Failed: {sync_result['title']} - {sync_result['reason']}"
-                            )
-
-                        result["details"].append(sync_result)
-
-                    except Exception as e:
-                        error_msg = f"Error syncing {abs_book.get('title', 'Unknown')}: {str(e)}"
-                        pbar.set_postfix({"status": "✗ Error", "error": str(e)[:20]})
-                        self.logger.error(error_msg)
-                        result["errors"].append(error_msg)
-
-                    # Update progress bar
-                    pbar.update(1)
+            sync_duration = time.time() - sync_start_time
+            self.timing_data["sync_loop"] = sync_duration
+            self.logger.info(f"Sync loop completed in {sync_duration:.2f}s")
 
             result["success"] = True
+
+            # Print timing summary
+            self.print_timing_summary()
+
             self.logger.info(
                 f"Synchronization completed: {result['books_synced']} synced, {result['books_completed']} completed, {result['books_auto_added']} auto-added, {result['books_skipped']} skipped"
             )
@@ -473,6 +630,194 @@ class SyncManager:
         self.logger.info(f"Created ISBN lookup with {len(isbn_lookup)} entries")
         return isbn_lookup
 
+    def _sync_books_sequential(
+        self,
+        syncable_books: List[Dict],
+        isbn_to_hardcover: Dict[str, Dict],
+        result: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Process books sequentially with detailed timing"""
+        sync_results = []
+
+        with tqdm(total=len(syncable_books), desc="Syncing books", unit="book") as pbar:
+            for abs_book in syncable_books:
+                book_start_time = time.time()
+                result["books_processed"] += 1
+
+                try:
+                    # Get book title for progress display
+                    title = (
+                        abs_book.get("media", {})
+                        .get("metadata", {})
+                        .get("title", "Unknown")
+                    )
+                    progress_percent = abs_book.get("progress_percentage", 0)
+
+                    # Update progress bar
+                    pbar.set_description(
+                        f"Syncing: {title[:30]}{'...' if len(title) > 30 else ''}"
+                    )
+                    pbar.set_postfix(
+                        {
+                            "progress": f"{progress_percent:.1f}%",
+                            "processed": result["books_processed"],
+                        }
+                    )
+
+                    # Sync the book
+                    sync_result = self._sync_single_book(abs_book, isbn_to_hardcover)
+                    sync_results.append(sync_result)
+
+                    # Update progress bar with result
+                    if sync_result["status"] == "synced":
+                        pbar.set_postfix(
+                            {
+                                "status": "✓ Synced",
+                                "progress": f"{progress_percent:.1f}%",
+                            }
+                        )
+                    elif sync_result["status"] == "completed":
+                        pbar.set_postfix(
+                            {
+                                "status": "✓ Completed",
+                                "progress": f"{progress_percent:.1f}%",
+                            }
+                        )
+                    elif sync_result["status"] == "auto_added":
+                        pbar.set_postfix(
+                            {
+                                "status": "✓ Added",
+                                "progress": f"{progress_percent:.1f}%",
+                            }
+                        )
+                    elif sync_result["status"] == "skipped":
+                        pbar.set_postfix(
+                            {
+                                "status": "⏭ Skipped",
+                                "reason": sync_result["reason"][:20],
+                            }
+                        )
+                    elif sync_result["status"] == "failed":
+                        pbar.set_postfix(
+                            {"status": "✗ Failed", "error": sync_result["reason"][:20]}
+                        )
+
+                except Exception as e:
+                    error_msg = (
+                        f"Error syncing {abs_book.get('title', 'Unknown')}: {str(e)}"
+                    )
+                    pbar.set_postfix({"status": "✗ Error", "error": str(e)[:20]})
+                    self.logger.error(error_msg)
+                    result["errors"].append(error_msg)
+                    sync_results.append(
+                        {"status": "failed", "title": "Unknown", "reason": error_msg}
+                    )
+
+                # Record timing for this book
+                book_duration = time.time() - book_start_time
+                self.timing_data[f"book_{title[:20]}"] = book_duration
+                pbar.set_postfix({"time": f"{book_duration:.2f}s"})
+                pbar.update(1)
+
+        return sync_results
+
+    def _sync_books_parallel(
+        self,
+        syncable_books: List[Dict],
+        isbn_to_hardcover: Dict[str, Dict],
+        result: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Process books in parallel with timing"""
+        sync_results = []
+
+        def sync_single_book_wrapper(abs_book: Dict) -> Dict[str, Any]:
+            """Wrapper to time individual book syncs"""
+            book_start_time = time.time()
+            title = (
+                abs_book.get("media", {}).get("metadata", {}).get("title", "Unknown")
+            )
+
+            try:
+                sync_result = self._sync_single_book(abs_book, isbn_to_hardcover)
+                book_duration = time.time() - book_start_time
+                self.timing_data[f"book_{title[:20]}"] = book_duration
+                self.logger.debug(f"Book '{title}' synced in {book_duration:.2f}s")
+                return sync_result
+            except Exception as e:
+                book_duration = time.time() - book_start_time
+                self.timing_data[f"book_{title[:20]}"] = book_duration
+                error_msg = f"Error syncing {title}: {str(e)}"
+                self.logger.error(error_msg)
+                return {"status": "failed", "title": title, "reason": error_msg}
+
+        # Process books in parallel
+        with tqdm(
+            total=len(syncable_books), desc="Syncing books (parallel)", unit="book"
+        ) as pbar:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=self.max_workers
+            ) as executor:
+                # Submit all books for processing
+                future_to_book = {
+                    executor.submit(sync_single_book_wrapper, book): book
+                    for book in syncable_books
+                }
+
+                # Collect results as they complete
+                for future in concurrent.futures.as_completed(future_to_book):
+                    abs_book = future_to_book[future]
+                    result["books_processed"] += 1
+
+                    try:
+                        sync_result = future.result()
+                        sync_results.append(sync_result)
+
+                        # Update progress bar
+                        title = (
+                            abs_book.get("media", {})
+                            .get("metadata", {})
+                            .get("title", "Unknown")
+                        )
+                        progress_percent = abs_book.get("progress_percentage", 0)
+                        book_time = self.timing_data.get(f"book_{title[:20]}", 0)
+
+                        if sync_result["status"] == "synced":
+                            pbar.set_postfix(
+                                {"status": "✓ Synced", "time": f"{book_time:.2f}s"}
+                            )
+                        elif sync_result["status"] == "completed":
+                            pbar.set_postfix(
+                                {"status": "✓ Completed", "time": f"{book_time:.2f}s"}
+                            )
+                        elif sync_result["status"] == "auto_added":
+                            pbar.set_postfix(
+                                {"status": "✓ Added", "time": f"{book_time:.2f}s"}
+                            )
+                        elif sync_result["status"] == "skipped":
+                            pbar.set_postfix(
+                                {"status": "⏭ Skipped", "time": f"{book_time:.2f}s"}
+                            )
+                        elif sync_result["status"] == "failed":
+                            pbar.set_postfix(
+                                {"status": "✗ Failed", "time": f"{book_time:.2f}s"}
+                            )
+
+                    except Exception as e:
+                        error_msg = f"Error processing book: {str(e)}"
+                        self.logger.error(error_msg)
+                        result["errors"].append(error_msg)
+                        sync_results.append(
+                            {
+                                "status": "failed",
+                                "title": "Unknown",
+                                "reason": error_msg,
+                            }
+                        )
+
+                    pbar.update(1)
+
+        return sync_results
+
     def _sync_single_book(
         self, abs_book: Dict, isbn_to_hardcover: Dict[str, Dict]
     ) -> Dict[str, Any]:
@@ -492,9 +837,7 @@ class SyncManager:
 
         # For books above threshold, check if progress has changed since last sync
         if progress_percent >= self.min_progress_threshold:
-            if not self.progress_cache.has_progress_changed(
-                isbn, title, progress_percent
-            ):
+            if not self.book_cache.has_progress_changed(isbn, title, progress_percent):
                 return {
                     "status": "skipped",
                     "title": title,
@@ -621,7 +964,7 @@ class SyncManager:
         # Check cache first for edition preference
         cached_edition_id = None
         if isbn:
-            cached_edition_id = self.edition_cache.get_edition_for_book(isbn, title)
+            cached_edition_id = self.book_cache.get_edition_for_book(isbn, title)
 
         # Select edition using enhanced logic with cache
         edition = self._select_edition_with_cache(
@@ -630,9 +973,33 @@ class SyncManager:
 
         # Store the selected edition in cache for future use
         if isbn and edition:
-            self.edition_cache.store_mapping(isbn, title, edition["id"])
+            self.book_cache.store_edition_mapping(isbn, title, edition["id"])
 
-        # Get current book status from Hardcover to check if status needs updating
+        # Check if we have cached progress and can skip API calls
+        cached_progress = None
+        if isbn:
+            cached_progress = self.book_cache.get_last_progress(isbn, title)
+
+        # If we have cached progress and it matches current progress, skip expensive API calls
+        if (
+            cached_progress is not None
+            and abs(cached_progress - progress_percent) < 0.1
+        ):
+            self.logger.debug(
+                f"Using cached progress for {title}: {progress_percent:.1f}%"
+            )
+
+            # Store the current progress in cache (in case it's slightly different)
+            if isbn:
+                self.book_cache.store_progress(isbn, title, progress_percent)
+
+            return {
+                "status": "skipped",
+                "title": title,
+                "reason": f"Using cached progress ({progress_percent:.1f}% same as last sync)",
+            }
+
+        # Only make API calls if we don't have cached data or progress has changed
         current_progress = self.hardcover.get_book_current_progress(user_book_id)
         current_user_book = None
 
@@ -681,20 +1048,14 @@ class SyncManager:
 
             # Skip progress sync for 0% progress to avoid API errors
             if progress_percent == 0.0:
-                # Still check if we need to update the book status
-                status_result = self._check_and_update_book_status(
-                    user_book, progress_percent, title
-                )
-
                 # Store the progress in cache even for 0% (for tracking purposes)
                 if isbn:
-                    self.progress_cache.store_progress(isbn, title, progress_percent)
+                    self.book_cache.store_progress(isbn, title, progress_percent)
 
                 return {
                     "status": "skipped",
                     "title": title,
-                    "reason": "0% progress - no progress sync (status check performed)",
-                    "status_check": status_result,
+                    "reason": "0% progress - no progress sync (cached)",
                 }
 
             # Calculate current page from percentage
@@ -719,9 +1080,7 @@ class SyncManager:
                 if success:
                     # Store the synced progress in cache (for both above and below threshold)
                     if isbn:
-                        self.progress_cache.store_progress(
-                            isbn, title, progress_percent
-                        )
+                        self.book_cache.store_progress(isbn, title, progress_percent)
 
                     return {
                         "status": "synced",
@@ -989,21 +1348,53 @@ class SyncManager:
         )
 
     def get_cache_stats(self) -> Dict[str, int]:
-        """Get edition cache statistics"""
-        return self.edition_cache.get_cache_stats()
+        """Get cache statistics"""
+        return self.book_cache.get_cache_stats()
 
-    def clear_edition_cache(self) -> None:
-        """Clear the edition mapping cache"""
-        self.edition_cache.clear_cache()
+    def clear_cache(self) -> None:
+        """Clear the book cache"""
+        self.book_cache.clear_cache()
 
-    def clear_progress_cache(self) -> None:
-        """Clear the progress tracking cache"""
-        self.progress_cache.clear_cache()
+    def migrate_from_old_caches(self) -> None:
+        """Migrate data from old JSON cache files to SQLite"""
+        self.book_cache.migrate_from_old_caches()
 
-    def clear_all_caches(self) -> None:
-        """Clear both edition and progress caches"""
-        self.edition_cache.clear_cache()
-        self.progress_cache.clear_cache()
+    def export_to_json(self, filename: str = "book_cache_export.json") -> None:
+        """Export cache data to JSON for backup/debugging"""
+        self.book_cache.export_to_json(filename)
+
+    def _get_cached_book_status(self, user_book_id: int, title: str) -> Optional[Dict]:
+        """Get cached book status to avoid API calls"""
+        # For now, we'll always make the API call, but we could extend the cache
+        # to store book status information as well
+        return None
+
+    def get_timing_data(self) -> Dict[str, float]:
+        """Get timing data for performance analysis"""
+        return self.timing_data.copy()
+
+    def print_timing_summary(self) -> None:
+        """Print a summary of timing data"""
+        if not self.timing_data:
+            self.logger.info("No timing data available")
+            return
+
+        self.logger.info("=" * 50)
+        self.logger.info("📊 TIMING SUMMARY")
+        self.logger.info("=" * 50)
+
+        # Sort by duration (descending)
+        sorted_timing = sorted(
+            self.timing_data.items(), key=lambda x: x[1], reverse=True
+        )
+        total_time = sum(self.timing_data.values())
+
+        for operation, duration in sorted_timing:
+            percentage = (duration / total_time) * 100 if total_time > 0 else 0
+            self.logger.info(f"{operation:30} {duration:8.3f}s ({percentage:5.1f}%)")
+
+        self.logger.info(f"{'TOTAL':30} {total_time:8.3f}s")
+        self.logger.info("=" * 50)
 
     def _check_and_update_book_status(
         self, user_book: Dict, progress_percent: float, title: str

@@ -387,88 +387,65 @@ def run_cache_interactive() -> None:
             config, dry_run=True
         )  # Use dry_run to avoid actual sync
 
+        # Migrate from old JSON caches if they exist
+        sync_manager.migrate_from_old_caches()
+
         while True:
             print("\nCache Management Options:")
             print("1. 📊 Show cache statistics")
-            print("2. 🗑️  Clear edition cache")
-            print("3. 🗑️  Clear progress cache")
-            print("4. 🗑️  Clear all caches")
-            print("5. 🔙 Back to main menu")
+            print("2. 🗑️  Clear book cache")
+            print("3. 📤 Export cache to JSON")
+            print("4. 🔙 Back to main menu")
 
-            choice = input("\nEnter your choice (1-5): ").strip()
+            choice = input("\nEnter your choice (1-4): ").strip()
 
             if choice == "1":
                 # Show cache statistics
-                edition_stats = sync_manager.get_cache_stats()
-                progress_stats = sync_manager.progress_cache.get_cache_stats()
+                cache_stats = sync_manager.get_cache_stats()
 
-                print(f"\n📊 Edition Cache Statistics:")
-                print(f"   Total mappings: {edition_stats['total_mappings']}")
-                print(f"   Cache file size: {edition_stats['cache_file_size']} bytes")
+                print(f"\n📊 Book Cache Statistics:")
+                print(f"   Total books: {cache_stats['total_books']}")
+                print(f"   Books with editions: {cache_stats['books_with_editions']}")
+                print(f"   Books with progress: {cache_stats['books_with_progress']}")
+                print(f"   Cache file size: {cache_stats['cache_file_size']} bytes")
 
-                if edition_stats["total_mappings"] > 0:
-                    print(f"   📁 Cache file: .edition_cache.json")
+                if cache_stats["total_books"] > 0:
+                    print(f"   📁 Cache file: .book_cache.db (SQLite)")
                 else:
-                    print("   📁 No edition cache file exists yet")
-
-                print(f"\n📊 Progress Cache Statistics:")
-                print(f"   Total records: {progress_stats['total_records']}")
-                print(f"   Cache file size: {progress_stats['cache_file_size']} bytes")
-
-                if progress_stats["total_records"] > 0:
-                    print(f"   📁 Cache file: .progress_cache.json")
-                else:
-                    print("   📁 No progress cache file exists yet")
+                    print("   📁 No book cache file exists yet")
 
                 input("\nPress Enter to continue...")
 
             elif choice == "2":
-                # Clear edition cache
+                # Clear book cache
                 confirm = (
-                    input(
-                        "🗑️  Are you sure you want to clear the edition cache? (y/N): "
-                    )
+                    input("🗑️  Are you sure you want to clear the book cache? (y/N): ")
                     .strip()
                     .lower()
                 )
                 if confirm in ["y", "yes"]:
-                    sync_manager.clear_edition_cache()
-                    print("✅ Edition cache cleared successfully!")
+                    sync_manager.clear_cache()
+                    print("✅ Book cache cleared successfully!")
                 else:
-                    print("❌ Edition cache clear cancelled.")
+                    print("❌ Book cache clear cancelled.")
                 input("\nPress Enter to continue...")
 
             elif choice == "3":
-                # Clear progress cache
-                confirm = (
-                    input(
-                        "🗑️  Are you sure you want to clear the progress cache? (y/N): "
-                    )
-                    .strip()
-                    .lower()
-                )
-                if confirm in ["y", "yes"]:
-                    sync_manager.clear_progress_cache()
-                    print("✅ Progress cache cleared successfully!")
-                else:
-                    print("❌ Progress cache clear cancelled.")
+                # Export cache to JSON
+                filename = input(
+                    "Enter export filename (default: book_cache_export.json): "
+                ).strip()
+                if not filename:
+                    filename = "book_cache_export.json"
+
+                try:
+                    sync_manager.export_to_json(filename)
+                    print(f"✅ Cache exported to {filename}")
+                except Exception as e:
+                    print(f"❌ Export failed: {str(e)}")
                 input("\nPress Enter to continue...")
 
             elif choice == "4":
-                # Clear all caches
-                confirm = (
-                    input("🗑️  Are you sure you want to clear ALL caches? (y/N): ")
-                    .strip()
-                    .lower()
-                )
-                if confirm in ["y", "yes"]:
-                    sync_manager.clear_all_caches()
-                    print("✅ All caches cleared successfully!")
-                else:
-                    print("❌ Cache clear cancelled.")
-                input("\nPress Enter to continue...")
-
-            elif choice == "5":
                 # Back to main menu
                 break
             else:
