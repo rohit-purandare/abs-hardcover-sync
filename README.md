@@ -9,7 +9,20 @@
 
 ---
 
-## 🚀 Quick Start (Recommended: Docker Compose)
+## 🚀 Quick Start Script Block
+
+The fastest way to get started:
+
+```sh
+curl -O https://raw.githubusercontent.com/rohit-purandare/audiobookshelf-hardcover-sync/main/docker-compose.yml
+mkdir -p config
+curl -o config/secrets.env https://raw.githubusercontent.com/rohit-purandare/audiobookshelf-hardcover-sync/main/config/secrets.env.example
+# Edit config/secrets.env with your API tokens
+# Then start the service:
+docker-compose up -d
+```
+
+## 🚀 Step by Step (Recommended: Docker Compose)
 
 You **do not need to clone this repo** to use the tool! Just:
 
