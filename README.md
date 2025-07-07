@@ -15,26 +15,25 @@ You **do not need to clone this repo** to use the tool! Just:
 
 1. **Create a minimal `docker-compose.yml` in your project or config directory:**
    ```yaml
-docker-compose.yml:
-version: '3.8'
-services:
-  abs-hardcover-sync:
-    image: ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
-    container_name: abs-hardcover-sync
-    restart: unless-stopped
-    environment:
-      - PYTHONPATH=/app
-    volumes:
-      - ./config/secrets.env:/app/config/secrets.env:ro
-      - ./.progress_cache.json:/app/.progress_cache.json
-      - ./.edition_cache.json:/app/.edition_cache.json
-    healthcheck:
-      test: ["CMD", "python", "src/main.py", "--version"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    command: ["cron"]
+   version: '3.8'
+   services:
+     abs-hardcover-sync:
+       image: ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
+       container_name: abs-hardcover-sync
+       restart: unless-stopped
+       environment:
+         - PYTHONPATH=/app
+       volumes:
+         - ./config/secrets.env:/app/config/secrets.env:ro
+         - ./.progress_cache.json:/app/.progress_cache.json
+         - ./.edition_cache.json:/app/.edition_cache.json
+       healthcheck:
+         test: ["CMD", "python", "src/main.py", "--version"]
+         interval: 30s
+         timeout: 10s
+         retries: 3
+         start_period: 10s
+       command: ["cron"]
    ```
 
 2. **Create your config directory and secrets file:**
