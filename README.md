@@ -165,28 +165,28 @@ crontab -e
 0 */6 * * * cd /path/to/sync-tool && python src/main.py sync
 ```
 
+## Docker & Containerization
+
+- **Alpine-based image:** The official Docker image is now based on `python:3.11-alpine` for a smaller, more secure, and efficient build.
+- **Healthcheck:** The Docker image and Compose setup include a healthcheck for better container monitoring and reliability.
+- **Non-root user:** The container runs as a non-root user for improved security.
+- **.dockerignore:** The project uses a robust `.dockerignore` to keep images small and secure by excluding unnecessary files.
+
 ### Docker Deployment
 
 #### Using GitHub Container Registry (Recommended)
 
-The project automatically builds and publishes Docker images to GitHub Container Registry:
+The project automatically builds and publishes a minimal, Alpine-based Docker image to GitHub Container Registry:
 
 ```bash
-# Pull the latest image
+# Pull the latest image (Alpine-based)
 docker pull ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
-
-# Run with your config
-docker run -it --rm \
-  -v $PWD/secrets.env:/app/secrets.env:ro \
-  -v $PWD/.progress_cache.json:/app/.progress_cache.json \
-  -v $PWD/.edition_cache.json:/app/.edition_cache.json \
-  ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
-
-# Run a specific command
-docker run --rm \
-  -v $PWD/secrets.env:/app/secrets.env:ro \
-  ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest sync --dry-run
 ```
+
+- The image is based on `python:3.11-alpine` for reduced size and attack surface.
+- Includes a built-in healthcheck for container monitoring.
+- Runs as a non-root user for security.
+- Uses a robust `.dockerignore` to keep images lean.
 
 #### Using Docker Compose (Recommended for Scheduled Syncs)
 
@@ -220,13 +220,16 @@ docker-compose down
 #### Building Locally
 
 ```bash
-# Build the image
-docker build -t abs-hardcover-sync .
+# Build the image (Alpine-based)
+docker build -t abs-hardcover-sync:alpine -t abs-hardcover-sync:latest .
 
 # Run the container
+# (mount your config and cache files as needed)
 docker run -it --rm \
-  -v $PWD/secrets.env:/app/secrets.env:ro \
-  abs-hardcover-sync
+  -v $PWD/config/secrets.env:/app/config/secrets.env:ro \
+  -v $PWD/.progress_cache.json:/app/.progress_cache.json \
+  -v $PWD/.edition_cache.json:/app/.edition_cache.json \
+  abs-hardcover-sync:latest
 ```
 
 **Configure sync schedule in `config/secrets.env`:**
