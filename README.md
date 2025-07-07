@@ -116,6 +116,13 @@ python src/main.py config
 
 ## Usage
 
+**Important:** Always run the CLI from the project root directory so it can find your `config/secrets.env` file:
+```bash
+cd /path/to/audiobookshelf-hardcover-sync
+python src/main.py test
+```
+If you run the script from another directory, it may not find your config file and will report missing API tokens.
+
 ### Quick Start
 ```bash
 # Run with interactive menu (default)
@@ -181,17 +188,33 @@ docker run --rm \
   ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest sync --dry-run
 ```
 
-#### Using Docker Compose (Local Development)
+#### Using Docker Compose (Recommended for Scheduled Syncs)
 
 ```bash
-# Build and run locally
-docker-compose up
-
-# Run in background
+# Start the sync tool in scheduled (cron) mode
 docker-compose up -d
+```
 
-# Run specific service
-docker-compose run abs-hardcover-sync sync --dry-run
+By default, the container will:
+- Stay running in the background
+- Sync your progress on the schedule you set in `config/secrets.env` (e.g., every hour)
+- Restart automatically if stopped or after a reboot (due to `restart: unless-stopped`)
+
+**To change the sync schedule:**  
+Edit `config/secrets.env`:
+```env
+SYNC_SCHEDULE=0 * * * *   # every hour (default)
+TIMEZONE=UTC              # or your preferred timezone
+```
+
+**To view logs:**
+```bash
+docker-compose logs -f abs-hardcover-sync
+```
+
+**To stop the service:**
+```bash
+docker-compose down
 ```
 
 #### Building Locally

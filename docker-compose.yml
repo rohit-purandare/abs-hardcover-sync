@@ -7,6 +7,7 @@ services:
     # Uncomment to build locally instead of pulling
     # build: .
     container_name: abs-hardcover-sync
+    restart: unless-stopped
     environment:
       - PYTHONPATH=/app
     volumes:
@@ -20,4 +21,4 @@ services:
     # Use host network for potential local API access
     network_mode: host
     # Default command - can be overridden
-    command: ["sync"] 
+    command: ["cron"] 
