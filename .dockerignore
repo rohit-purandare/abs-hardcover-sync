@@ -1,3 +1,5 @@
+# .dockerignore - Exclude files and directories from Docker build context to keep images small and secure
+
 # Git
 .git
 .gitignore

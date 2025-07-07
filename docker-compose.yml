@@ -21,4 +21,11 @@ services:
     # Use host network for potential local API access
     network_mode: host
     # Default command - can be overridden
-    command: ["cron"] 
+    command: ["cron"]
+    # Healthcheck for Compose-level monitoring
+    healthcheck:
+      test: ["CMD", "python", "src/main.py", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s 
