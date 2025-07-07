@@ -521,6 +521,19 @@ def run_cron_mode(sync_manager: SyncManager, config: Config) -> None:
     logger.info("🕐 Starting cron mode - sync will run automatically based on schedule")
     logger.info("Press Ctrl+C to stop")
 
+    def format_hms(seconds: float) -> str:
+        seconds = int(seconds)
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        s = seconds % 60
+        parts = []
+        if h > 0:
+            parts.append(f"{h}h")
+        if m > 0 or h > 0:
+            parts.append(f"{m}m")
+        parts.append(f"{s}s")
+        return " ".join(parts)
+
     try:
         # Calculate time until next run
         now = datetime.now(tz)
@@ -530,18 +543,21 @@ def run_cron_mode(sync_manager: SyncManager, config: Config) -> None:
 
         # Log at startup
         logger.info(
-            f"⏰ Next sync in {time_until_next:.0f} seconds ({next_run.strftime('%Y-%m-%d %H:%M:%S')})"
+            f"🟢 Sync scheduler started. First sync scheduled in {format_hms(time_until_next)} ({next_run.strftime('%Y-%m-%d %H:%M:%S')})"
         )
+
+        logged_ten_minute_warning = False
 
         while True:
             now = datetime.now(tz)
             time_until_next = (next_run - now).total_seconds()
 
-            # Only log if <10 minutes to go
-            if 0 < time_until_next <= 600:
+            # Log once when crossing the 10-minute threshold
+            if not logged_ten_minute_warning and 0 < time_until_next <= 600:
                 logger.info(
-                    f"⏰ Next sync in {time_until_next:.0f} seconds ({next_run.strftime('%Y-%m-%d %H:%M:%S')})"
+                    f"⏰ Next sync in {format_hms(time_until_next)} ({next_run.strftime('%Y-%m-%d %H:%M:%S')})"
                 )
+                logged_ten_minute_warning = True
 
             if time_until_next > 0:
                 time.sleep(min(time_until_next, 60))
@@ -562,6 +578,7 @@ def run_cron_mode(sync_manager: SyncManager, config: Config) -> None:
                 # Update next run time
                 cron = croniter(schedule, datetime.now(tz))
                 next_run = cron.get_next(datetime)
+                logged_ten_minute_warning = False
 
     except KeyboardInterrupt:
         logger.info("🛑 Cron mode stopped by user")
