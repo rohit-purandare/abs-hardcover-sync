@@ -20,7 +20,7 @@ services:
     # Use host network for potential local API access
     network_mode: host
     # Default command - can be overridden
-    command: ["--help"]
+    command: ["python", "src/main.py", "--help"]
 
   # Alternative service for non-interactive runs
   abs-hardcover-sync-run:
@@ -37,4 +37,4 @@ services:
       - ./.edition_cache.json:/app/.edition_cache.json
     network_mode: host
     # Example command - modify as needed
-    command: ["--dry-run"] 
+    command: ["python", "src/main.py", "--dry-run"] 

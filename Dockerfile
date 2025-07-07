@@ -29,5 +29,5 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
 # Default command
-ENTRYPOINT ["python", "main.py"]
+ENTRYPOINT ["python", "src/main.py"]
 CMD ["--help"] 
