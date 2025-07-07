@@ -1,6 +1,114 @@
 # Audiobookshelf to Hardcover Sync Tool
 
-A simple Python CLI tool that syncs your audiobook listening progress from [Audiobookshelf](https://www.audiobookshelf.org/) to reading progress in [Hardcover](https://hardcover.app/).
+**Sync your audiobook listening progress from [Audiobookshelf](https://www.audiobookshelf.org/) to [Hardcover](https://hardcover.app/)—automatically, reliably, and with zero manual effort.**
+
+- 📚 Match books by ISBN and sync progress seamlessly
+- 🔄 Runs on a schedule, in the background, with robust error handling
+- 🐳 Production-ready Docker image (Alpine, healthcheck, non-root)
+- 🛡️ Secure: no secrets in the image, no data sent to third parties
+
+---
+
+## 🚀 Quick Start (Recommended: Docker Compose)
+
+You **do not need to clone this repo** to use the tool! Just:
+
+1. **Create a minimal `docker-compose.yml` in your project or config directory:**
+   ```yaml
+docker-compose.yml:
+version: '3.8'
+services:
+  abs-hardcover-sync:
+    image: ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
+    container_name: abs-hardcover-sync
+    restart: unless-stopped
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      - ./config/secrets.env:/app/config/secrets.env:ro
+      - ./.progress_cache.json:/app/.progress_cache.json
+      - ./.edition_cache.json:/app/.edition_cache.json
+    healthcheck:
+      test: ["CMD", "python", "src/main.py", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    command: ["cron"]
+   ```
+
+2. **Create your config directory and secrets file:**
+   ```bash
+   mkdir -p config
+   curl -o config/secrets.env https://raw.githubusercontent.com/rohit-purandare/audiobookshelf-hardcover-sync/main/config/secrets.env.example
+   # Edit config/secrets.env with your API tokens and settings
+   ```
+
+3. **Start the sync tool:**
+   ```bash
+   docker-compose up -d
+   ```
+   - The container will run in the background and sync on the schedule set in `config/secrets.env` (default: every hour).
+   - To view logs:
+     ```bash
+     docker-compose logs -f abs-hardcover-sync
+     ```
+   - To stop the service:
+     ```bash
+     docker-compose down
+     ```
+
+---
+
+## Quick Start: Docker CLI (Manual/Advanced)
+
+1. **Pull the image:**
+   ```bash
+   docker pull ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
+   ```
+2. **Create your config and secrets as above.**
+3. **Run a one-time sync:**
+   ```bash
+   docker run --rm \
+     -v $PWD/config/secrets.env:/app/config/secrets.env:ro \
+     -v $PWD/.progress_cache.json:/app/.progress_cache.json \
+     -v $PWD/.edition_cache.json:/app/.edition_cache.json \
+     ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest sync
+   ```
+4. **Run in cron mode (scheduled syncs):**
+   ```bash
+   docker run -d --name abs-hardcover-sync \
+     -v $PWD/config/secrets.env:/app/config/secrets.env:ro \
+     -v $PWD/.progress_cache.json:/app/.progress_cache.json \
+     -v $PWD/.edition_cache.json:/app/.edition_cache.json \
+     ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest cron
+   ```
+
+---
+
+## Quick Start: Python (For Developers/Advanced Users)
+
+1. **Clone the repo and install dependencies:**
+   ```bash
+   git clone https://github.com/rohit-purandare/audiobookshelf-hardcover-sync.git
+   cd audiobookshelf-hardcover-sync
+   pip install -e .
+   ```
+2. **Configure your secrets:**
+   ```bash
+   cp config/secrets.env.example config/secrets.env
+   # Edit config/secrets.env with your API tokens and settings
+   ```
+3. **Run the tool:**
+   ```bash
+   python src/main.py sync
+   # or run interactively
+   python src/main.py
+   ```
+
+---
+
+> **Note:** Docker Compose is the recommended and easiest way to run this tool in production or for scheduled syncs. Python CLI is best for development or advanced customization.
 
 ## How It Works
 
@@ -40,19 +148,6 @@ Syncing Project Hail Mary: 71.5% → page 354/496
 - Audiobookshelf server (with API access)
 - Hardcover account (with API token)
 - Internet connection
-
-## Installation
-
-1. **Download the code**
-   ```bash
-   git clone https://github.com/rohit-purandare/audiobookshelf-hardcover-sync.git
-   cd audiobookshelf-hardcover-sync
-   ```
-
-2. **Install dependencies**
-   ```bash
-   pip install -e .
-   ```
 
 ## Project Structure
 
