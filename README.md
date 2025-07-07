@@ -44,18 +44,19 @@ You **do not need to clone this repo** to use the tool! Just:
 
 3. **Edit your secrets file with your API tokens and server info:**
    - Open `config/secrets.env` in a text editor and fill in the required values:
+   - **Audiobookshelf URL:** The URL of your Audiobookshelf server (e.g., `http://localhost:13378` or your remote server).
+   - **Audiobookshelf API token:**
+     - Go to your Audiobookshelf web interface
+     - Settings → Users & Sessions → API Tokens
+     - Create a new token and copy it here.
+   - **Hardcover API token:**
+     - Go to [hardcover.app/account/api](https://hardcover.app/account/api)
+     - Copy the token (do NOT include the "Bearer " prefix).
+   
+   Example `config/secrets.env`:
    ```env
-   # config/secrets.env
-
-   # Your Audiobookshelf server URL (e.g. http://localhost:13378)
    AUDIOBOOKSHELF_URL=https://your-audiobookshelf-server.com
-
-   # Audiobookshelf API token
-   # Get this from Audiobookshelf: Settings → Users & Sessions → API Tokens
    AUDIOBOOKSHELF_TOKEN=your_audiobookshelf_api_token
-
-   # Hardcover API token
-   # Get this from https://hardcover.app/account/api (no 'Bearer ' prefix)
    HARDCOVER_TOKEN=your_hardcover_api_token
 
    # Optional: Customize sync schedule and behavior
