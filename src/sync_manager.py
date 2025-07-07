@@ -1333,10 +1333,10 @@ class SyncManager:
         Handle completion status for books with 95%+ progress
 
         Checks current status in Hardcover and only marks as completed if not already completed.
-        If already completed, just updates progress.
+        If already completed, just updates progress if it has changed.
         """
         self.logger.info(
-            f"📖 Book completion check for {title}: {progress_percent:.1f}%"
+            f"\U0001F4D6 Book completion check for {title}: {progress_percent:.1f}%"
         )
 
         # Check current status in Hardcover
@@ -1349,17 +1349,32 @@ class SyncManager:
                 f"Current status for {title}: {current_status_id} (3=Read, 2=Currently Reading)"
             )
 
-        # If already marked as completed (status_id=3), just update progress
+        # If already marked as completed (status_id=3), only update progress if it has changed
         if current_status_id == 3:
-            self.logger.info(f"✅ {title} already completed, updating progress only")
-            # Extract ISBN for progress tracking
             isbn = self._extract_isbn_from_abs_book(abs_book)
+            last_progress = (
+                self.book_cache.get_last_progress(isbn, title) if isbn else None
+            )
+            if (
+                last_progress is not None
+                and abs(last_progress - progress_percent) < 0.1
+            ):
+                self.logger.info(
+                    f"✅ {title} already completed, no progress change, skipping update"
+                )
+                return {
+                    "status": "skipped",
+                    "title": title,
+                    "reason": f"Already completed, no progress change ({progress_percent:.1f}%)",
+                }
+            # Otherwise, update progress
+            self.logger.info(f"✅ {title} already completed, updating progress only")
             return self._sync_progress_to_hardcover(
                 {"id": user_book_id}, edition, progress_percent, title, isbn
             )
 
         # If not completed, mark as completed
-        self.logger.info(f"🎯 Marking {title} as completed for the first time")
+        self.logger.info(f"\U0001F3AF Marking {title} as completed for the first time")
         return self._mark_book_completed(user_book_id, edition, title)
 
     def _handle_progress_status(
