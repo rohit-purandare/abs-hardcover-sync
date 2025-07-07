@@ -522,19 +522,29 @@ def run_cron_mode(sync_manager: SyncManager, config: Config) -> None:
     logger.info("Press Ctrl+C to stop")
 
     try:
+        # Calculate time until next run
+        now = datetime.now(tz)
+        next_run = cron.get_next(datetime)
+        time_until_next = (next_run - now).total_seconds()
+        initial_time_until_next = time_until_next  # Save for startup log
+
+        # Log at startup
+        logger.info(
+            f"⏰ Next sync in {time_until_next:.0f} seconds ({next_run.strftime('%Y-%m-%d %H:%M:%S')})"
+        )
+
         while True:
-            # Calculate time until next run
             now = datetime.now(tz)
-            next_run = cron.get_next(datetime)
             time_until_next = (next_run - now).total_seconds()
 
-            if time_until_next > 0:
+            # Only log if <10 minutes to go
+            if 0 < time_until_next <= 600:
                 logger.info(
                     f"⏰ Next sync in {time_until_next:.0f} seconds ({next_run.strftime('%Y-%m-%d %H:%M:%S')})"
                 )
-                time.sleep(
-                    min(time_until_next, 60)
-                )  # Sleep in 1-minute intervals to allow graceful shutdown
+
+            if time_until_next > 0:
+                time.sleep(min(time_until_next, 60))
             else:
                 # Time to sync
                 logger.info("🔄 Running scheduled sync...")
@@ -551,6 +561,7 @@ def run_cron_mode(sync_manager: SyncManager, config: Config) -> None:
 
                 # Update next run time
                 cron = croniter(schedule, datetime.now(tz))
+                next_run = cron.get_next(datetime)
 
     except KeyboardInterrupt:
         logger.info("🛑 Cron mode stopped by user")
