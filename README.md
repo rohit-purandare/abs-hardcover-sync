@@ -40,10 +40,31 @@ You **do not need to clone this repo** to use the tool! Just:
    ```bash
    mkdir -p config
    curl -o config/secrets.env https://raw.githubusercontent.com/rohit-purandare/audiobookshelf-hardcover-sync/main/config/secrets.env.example
-   # Edit config/secrets.env with your API tokens and settings
    ```
 
-3. **Start the sync tool:**
+3. **Edit your secrets file with your API tokens and server info:**
+   - Open `config/secrets.env` in a text editor and fill in the required values:
+   ```env
+   # config/secrets.env
+
+   # Your Audiobookshelf server URL (e.g. http://localhost:13378)
+   AUDIOBOOKSHELF_URL=https://your-audiobookshelf-server.com
+
+   # Audiobookshelf API token
+   # Get this from Audiobookshelf: Settings → Users & Sessions → API Tokens
+   AUDIOBOOKSHELF_TOKEN=your_audiobookshelf_api_token
+
+   # Hardcover API token
+   # Get this from https://hardcover.app/account/api (no 'Bearer ' prefix)
+   HARDCOVER_TOKEN=your_hardcover_api_token
+
+   # Optional: Customize sync schedule and behavior
+   SYNC_SCHEDULE=0 * * * *   # every hour (default)
+   TIMEZONE=UTC
+   MIN_PROGRESS_THRESHOLD=5.0
+   ```
+
+4. **Start the sync tool:**
    ```bash
    docker-compose up -d
    ```
