@@ -91,12 +91,12 @@ jobs:
     - name: Test CLI help
       run: |
         # Test that CLI works without errors
-        python main.py --help
+        python src/main.py --help
     
     - name: Test dry run mode
       run: |
         # Test dry run mode (should not make actual API calls)
-        python main.py sync --dry-run --no-interactive || echo "Dry run completed (may fail due to missing credentials)"
+        python src/main.py sync --dry-run --no-interactive || echo "Dry run completed (may fail due to missing credentials)"
     
     - name: Test interactive mode detection
       run: |
