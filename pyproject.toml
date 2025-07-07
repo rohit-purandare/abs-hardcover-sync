@@ -7,7 +7,18 @@ dependencies = [
     "python-dotenv>=1.1.1",
     "requests>=2.32.4",
     "tqdm>=4.66.0",
+    "croniter>=2.0.0",
+    "pytz>=2023.3",
 ]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+abs-hardcover-sync = "src.main:main"
 
 [project.optional-dependencies]
 test = [
@@ -49,7 +60,7 @@ extend-exclude = '''
 profile = "black"
 multi_line_output = 3
 line_length = 88
-known_first_party = ["config", "utils", "audiobookshelf_client", "hardcover_client", "sync_manager"]
+known_first_party = ["src.config", "src.utils", "src.audiobookshelf_client", "src.hardcover_client", "src.sync_manager"]
 
 [tool.mypy]
 python_version = "3.11"

@@ -20,10 +20,10 @@ class Config:
     def _load_config(self) -> None:
         """Load configuration from environment variables"""
 
-        # Load secrets from secrets.env file
-        if os.path.exists("secrets.env"):
-            load_dotenv("secrets.env")
-            self.logger.info("Loaded secrets from secrets.env")
+        # Load secrets from config/secrets.env file
+        if os.path.exists("config/secrets.env"):
+            load_dotenv("config/secrets.env")
+            self.logger.info("Loaded secrets from config/secrets.env")
 
         # Load additional settings from .env file
         if os.path.exists(".env"):
@@ -59,6 +59,10 @@ class Config:
             "yes",
         )
         self.MAX_WORKERS = int(os.getenv("MAX_WORKERS", "3"))
+
+        # Cron settings
+        self.SYNC_SCHEDULE = os.getenv("SYNC_SCHEDULE", "0 * * * *")
+        self.TIMEZONE = os.getenv("TIMEZONE", "UTC")
 
         self.logger.info("Configuration loaded from environment variables")
 
@@ -102,6 +106,13 @@ class Config:
             "min_progress_threshold": self.MIN_PROGRESS_THRESHOLD,
         }
 
+    def get_cron_config(self) -> dict:
+        """Get cron configuration as dictionary"""
+        return {
+            "schedule": self.SYNC_SCHEDULE,
+            "timezone": self.TIMEZONE,
+        }
+
     def __str__(self) -> str:
         """String representation of config (without sensitive data)"""
         return f"""Configuration:
@@ -113,4 +124,6 @@ class Config:
   Min Progress Threshold: {self.MIN_PROGRESS_THRESHOLD}%
   Log Level: {self.LOG_LEVEL}
   Max Retries: {self.MAX_RETRIES}
-  Retry Delay: {self.RETRY_DELAY} seconds"""
+  Retry Delay: {self.RETRY_DELAY} seconds
+  Sync Schedule: {self.SYNC_SCHEDULE}
+  Timezone: {self.TIMEZONE}"""

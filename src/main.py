@@ -12,9 +12,18 @@ import os
 import sys
 import time
 from datetime import datetime
+from typing import Optional
 
-from config import Config
-from sync_manager import SyncManager
+import pytz
+from croniter import croniter
+
+try:
+    from .config import Config
+    from .sync_manager import SyncManager
+except ImportError:
+    # When running directly, use absolute imports
+    from config import Config
+    from sync_manager import SyncManager
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -483,6 +492,72 @@ def run_cache_interactive() -> None:
         input("Press Enter to continue...")
 
 
+def run_cron_mode(sync_manager: SyncManager, config: Config) -> None:
+    """Run the sync tool in cron mode, continuously syncing based on schedule"""
+    logger = logging.getLogger(__name__)
+
+    # Get cron configuration
+    cron_config = config.get_cron_config()
+    schedule = cron_config["schedule"]
+    timezone_name = cron_config["timezone"]
+
+    # Set up timezone
+    try:
+        tz = pytz.timezone(timezone_name)
+        logger.info(f"Using timezone: {timezone_name}")
+    except pytz.exceptions.UnknownTimeZoneError:
+        logger.error(f"Unknown timezone: {timezone_name}. Using UTC.")
+        tz = pytz.UTC
+
+    # Create cron iterator
+    try:
+        cron = croniter(schedule, datetime.now(tz))
+        logger.info(f"Cron schedule: {schedule}")
+        logger.info(f"Next run: {cron.get_next(datetime)}")
+    except Exception as e:
+        logger.error(f"Invalid cron schedule '{schedule}': {str(e)}")
+        return
+
+    logger.info("🕐 Starting cron mode - sync will run automatically based on schedule")
+    logger.info("Press Ctrl+C to stop")
+
+    try:
+        while True:
+            # Calculate time until next run
+            now = datetime.now(tz)
+            next_run = cron.get_next(datetime)
+            time_until_next = (next_run - now).total_seconds()
+
+            if time_until_next > 0:
+                logger.info(
+                    f"⏰ Next sync in {time_until_next:.0f} seconds ({next_run.strftime('%Y-%m-%d %H:%M:%S')})"
+                )
+                time.sleep(
+                    min(time_until_next, 60)
+                )  # Sleep in 1-minute intervals to allow graceful shutdown
+            else:
+                # Time to sync
+                logger.info("🔄 Running scheduled sync...")
+                try:
+                    result = sync_once(sync_manager)
+                    if result["errors"]:
+                        logger.warning(
+                            f"Sync completed with {len(result['errors'])} errors"
+                        )
+                    else:
+                        logger.info("✅ Scheduled sync completed successfully")
+                except Exception as e:
+                    logger.error(f"Scheduled sync failed: {str(e)}")
+
+                # Update next run time
+                cron = croniter(schedule, datetime.now(tz))
+
+    except KeyboardInterrupt:
+        logger.info("🛑 Cron mode stopped by user")
+    except Exception as e:
+        logger.error(f"Cron mode failed: {str(e)}")
+
+
 def main() -> None:
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
@@ -492,8 +567,8 @@ def main() -> None:
     parser.add_argument(
         "command",
         nargs="?",  # Make command optional
-        choices=["sync", "test", "config", "clear-cache", "clear-editions"],
-        help="Command to execute: sync (one-time), test (connections), config (show configuration), clear-cache (clear all cache), or clear-editions (clear edition mappings)",
+        choices=["sync", "test", "config", "clear-cache", "clear-editions", "cron"],
+        help="Command to execute: sync (one-time), test (connections), config (show configuration), clear-cache (clear all cache), clear-editions (clear edition mappings), or cron (continuous sync)",
     )
 
     parser.add_argument(
@@ -601,6 +676,10 @@ def main() -> None:
                 print("📝 Next sync will re-fetch editions and author data.")
             else:
                 print("❌ Edition mapping clear cancelled.")
+            sys.exit(0)
+
+        elif args.command == "cron":
+            run_cron_mode(sync_manager, config)
             sys.exit(0)
 
     except KeyboardInterrupt:

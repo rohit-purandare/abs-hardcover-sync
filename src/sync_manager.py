@@ -14,9 +14,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from tqdm import tqdm
 
-from audiobookshelf_client import AudiobookshelfClient
-from hardcover_client import HardcoverClient
-from utils import calculate_progress_percentage, normalize_isbn
+try:
+    from .audiobookshelf_client import AudiobookshelfClient
+    from .hardcover_client import HardcoverClient
+    from .utils import calculate_progress_percentage, normalize_isbn
+except ImportError:
+    # When running directly, use absolute imports
+    from audiobookshelf_client import AudiobookshelfClient
+    from hardcover_client import HardcoverClient
+    from utils import calculate_progress_percentage, normalize_isbn
 
 
 class BookCache:

@@ -79,3 +79,6 @@ coverage/
 # Type checking cache
 .mypy_cache/
 
+# Docker
+docker-size-comparison.md
+

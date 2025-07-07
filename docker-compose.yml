@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  abs-hardcover-sync:
+    # Pulls from GitHub Container Registry: https://github.com/rohit-purandare/audiobookshelf-hardcover-sync/pkgs/container/audiobookshelf-hardcover-sync
+    image: ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
+    # Uncomment to build locally instead of pulling
+    # build: .
+    container_name: abs-hardcover-sync
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      # Mount config files for persistence
+      - ./config/secrets.env:/app/secrets.env:ro
+      - ./.progress_cache.json:/app/.progress_cache.json
+      - ./.edition_cache.json:/app/.edition_cache.json
+    # Interactive mode for CLI
+    stdin_open: true
+    tty: true
+    # Use host network for potential local API access
+    network_mode: host
+    # Default command - can be overridden
+    command: ["--help"]
+
+  # Alternative service for non-interactive runs
+  abs-hardcover-sync-run:
+    # Pulls from GitHub Container Registry: https://github.com/rohit-purandare/audiobookshelf-hardcover-sync/pkgs/container/audiobookshelf-hardcover-sync
+    image: ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
+    # Uncomment to build locally instead of pulling
+    # build: .
+    container_name: abs-hardcover-sync-run
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      - ./config/secrets.env:/app/secrets.env:ro
+      - ./.progress_cache.json:/app/.progress_cache.json
+      - ./.edition_cache.json:/app/.edition_cache.json
+    network_mode: host
+    # Example command - modify as needed
+    command: ["--dry-run"] 

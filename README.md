@@ -46,13 +46,36 @@ Syncing Project Hail Mary: 71.5% → page 354/496
 1. **Download the code**
    ```bash
    git clone https://github.com/rohit-purandare/audiobookshelf-hardcover-sync.git
-cd audiobookshelf-hardcover-sync
+   cd audiobookshelf-hardcover-sync
    ```
 
 2. **Install dependencies**
    ```bash
    pip install -e .
    ```
+
+## Project Structure
+
+```
+audiobookshelf-hardcover-sync/
+├── src/                    # Application code
+│   ├── main.py            # CLI entry point
+│   ├── config.py          # Configuration management
+│   ├── sync_manager.py    # Main sync logic
+│   ├── audiobookshelf_client.py
+│   ├── hardcover_client.py
+│   └── utils.py
+├── docker/                 # Docker configuration
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── DOCKER.md
+│   └── start-docker.sh
+├── config/                 # Configuration files
+│   ├── secrets.env         # Main secrets/config file
+│   └── secrets.env.example # Example config
+├── data/                   # Persistent data (created automatically)
+└── ...
+```
 
 ## Setup
 
@@ -69,11 +92,11 @@ cd audiobookshelf-hardcover-sync
 
 ### 2. Create Config File
 ```bash
-cp secrets.env.example secrets.env
+cp config/secrets.env.example config/secrets.env
 ```
 
 ### 3. Add Your Tokens
-Edit `secrets.env`:
+Edit `config/secrets.env`:
 ```bash
 # Your Audiobookshelf server
 AUDIOBOOKSHELF_URL=https://your-audiobookshelf-server.com
@@ -88,7 +111,7 @@ MIN_PROGRESS_THRESHOLD=5.0  # Only add to "Currently Reading" if 5%+ progress
 
 ### 4. Test Your Setup
 ```bash
-python main.py config
+python src/main.py config
 ```
 
 ## Usage
@@ -96,33 +119,33 @@ python main.py config
 ### Quick Start
 ```bash
 # Run with interactive menu (default)
-python main.py
+python src/main.py
 
 # Test your connections
-python main.py test
+python src/main.py test
 
 # Sync your progress
-python main.py sync
+python src/main.py sync
 
 # See what would be synced (no changes)
-python main.py sync --dry-run
+python src/main.py sync --dry-run
 ```
 
 ### Interactive Mode
 ```bash
 # Run with menu (this is the default)
-python main.py --interactive
+python src/main.py --interactive
 
 # Force non-interactive mode
-python main.py sync --no-interactive
+python src/main.py sync --no-interactive
 ```
 
 ### All Commands
 ```bash
-python main.py sync      # Sync your progress
-python main.py test      # Test connections
-python main.py config    # Show your setup
-python main.py --help    # Show all options
+python src/main.py sync      # Sync your progress
+python src/main.py test      # Test connections
+python src/main.py config    # Show your setup
+python src/main.py --help    # Show all options
 ```
 
 ### Auto-Sync (Optional)
@@ -132,8 +155,73 @@ Set up automatic syncing with cron:
 crontab -e
 
 # Sync every 6 hours
-0 */6 * * * cd /path/to/sync-tool && python main.py sync
+0 */6 * * * cd /path/to/sync-tool && python src/main.py sync
 ```
+
+### Docker Deployment
+
+#### Using GitHub Container Registry (Recommended)
+
+The project automatically builds and publishes Docker images to GitHub Container Registry:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
+
+# Run with your config
+docker run -it --rm \
+  -v $PWD/secrets.env:/app/secrets.env:ro \
+  -v $PWD/.progress_cache.json:/app/.progress_cache.json \
+  -v $PWD/.edition_cache.json:/app/.edition_cache.json \
+  ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
+
+# Run a specific command
+docker run --rm \
+  -v $PWD/secrets.env:/app/secrets.env:ro \
+  ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest sync --dry-run
+```
+
+#### Using Docker Compose (Local Development)
+
+```bash
+# Build and run locally
+docker-compose up
+
+# Run in background
+docker-compose up -d
+
+# Run specific service
+docker-compose run abs-hardcover-sync sync --dry-run
+```
+
+#### Building Locally
+
+```bash
+# Build the image
+docker build -t abs-hardcover-sync .
+
+# Run the container
+docker run -it --rm \
+  -v $PWD/secrets.env:/app/secrets.env:ro \
+  abs-hardcover-sync
+```
+
+**Configure sync schedule in `config/secrets.env`:**
+```bash
+# Sync every hour (default)
+SYNC_SCHEDULE=0 * * * *
+
+# Sync every 6 hours
+SYNC_SCHEDULE=0 */6 * * *
+
+# Sync daily at 9 AM
+SYNC_SCHEDULE=0 9 * * *
+
+# Timezone
+TIMEZONE=UTC
+```
+
+See [docker/DOCKER.md](docker/DOCKER.md) for detailed Docker usage instructions.
 
 ## How It Works
 
@@ -176,7 +264,7 @@ The tool remembers which book editions you use to sync faster:
 
 **Managing Cache:**
 ```bash
-python main.py --interactive
+python src/main.py --interactive
 # Then select "Cache management"
 ```
 
@@ -206,7 +294,7 @@ isort .
 ## Example Output
 
 ```bash
-$ python main.py sync
+$ python src/main.py sync
 
 🔍 Testing connections...
 ✅ All connections successful!
@@ -233,13 +321,13 @@ Syncing Project Hail Mary: 71.5% → page 354/496
 
 **Connection errors:**
 - Check your server URLs and tokens
-- Try `python main.py test` to verify
+- Try `python src/main.py test` to verify
 
 ### Getting Help
 
 Run with verbose logging:
 ```bash
-python main.py sync --verbose
+python src/main.py sync --verbose
 ```
 
 Check logs in `abs_hardcover_sync.log` for details.
@@ -266,11 +354,19 @@ This project uses automated workflows to ensure code quality and security:
 - **Checks**: Dependencies for known issues
 - **Validates**: No hardcoded secrets or exposed credentials
 
+### Container Registry
+- **Runs on**: Every push to main and version tags
+- **Builds**: Docker images automatically
+- **Publishes**: To GitHub Container Registry (ghcr.io)
+- **Tags**: Latest, version tags, and commit SHAs
+- **Available**: `ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync`
+
 ### Status Badges
 You can see the workflow status in the repository:
 - ✅ **CI/CD**: Ensures code quality
 - 🔒 **Security**: Monitors for vulnerabilities
 - 📊 **Coverage**: Tracks test coverage
+- 🐳 **Container**: Builds and publishes Docker images
 
 ## License
 
