@@ -7,13 +7,13 @@ import os
 
 from dotenv import load_dotenv
 
-from config import Config
-from hardcover_client import HardcoverClient
+from src.config import Config
+from src.hardcover_client import HardcoverClient
 
 
 def cleanup_book_progress(
     hardcover: HardcoverClient, user_book_id: int, book_title: str, dry_run: bool = True
-):
+) -> bool:
     """Clean up duplicate progress records for a specific book"""
 
     # Get all progress records for this book
@@ -109,7 +109,7 @@ def cleanup_book_progress(
         return False
 
 
-def main():
+def main() -> None:
     """Main cleanup function"""
     load_dotenv("secrets.env")
 

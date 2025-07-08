@@ -9,8 +9,8 @@ from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 
-from config import Config
-from hardcover_client import HardcoverClient
+from src.config import Config
+from src.hardcover_client import HardcoverClient
 
 
 def find_books_with_duplicate_progress(hardcover: HardcoverClient) -> List[Dict]:
@@ -149,13 +149,13 @@ def delete_progress_record(hardcover: HardcoverClient, record_id: int) -> bool:
 
     try:
         result = hardcover._execute_query(mutation, {"id": record_id})
-        return result and "delete_user_book_read" in result
+        return bool(result and "delete_user_book_read" in result)
     except Exception as e:
         print(f"Error deleting record {record_id}: {str(e)}")
         return False
 
 
-def main():
+def main() -> None:
     """Main cleanup function"""
     load_dotenv("secrets.env")
 

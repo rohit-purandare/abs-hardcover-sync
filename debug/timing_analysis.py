@@ -8,16 +8,16 @@ import os
 import sys
 import time
 from contextlib import contextmanager
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import Config
-from sync_manager import SyncManager
+from src.config import Config
+from src.sync_manager import SyncManager
 
 
 @contextmanager
-def timer(operation_name: str):
+def timer(operation_name: str) -> Any:
     """Context manager to time operations"""
     start_time = time.time()
     try:
@@ -30,9 +30,9 @@ def timer(operation_name: str):
 class TimedSyncManager(SyncManager):
     """SyncManager with timing instrumentation"""
 
-    def __init__(self, config: Any, dry_run: bool = False):
+    def __init__(self, config: Any, dry_run: bool = False) -> None:
         super().__init__(config, dry_run)
-        self.timing_data = {}
+        self.timing_data: Dict[str, float] = {}
 
     def sync_progress(self) -> Dict[str, Any]:
         """Main synchronization method with timing"""
@@ -55,7 +55,7 @@ class TimedSyncManager(SyncManager):
 
         return result
 
-    def _time_operation(self, operation_name: str, func, *args, **kwargs):
+    def _time_operation(self, operation_name: str, func: Any, *args: Any, **kwargs: Any) -> Any:
         """Time a specific operation"""
         start_time = time.time()
         try:
@@ -71,7 +71,7 @@ class TimedSyncManager(SyncManager):
             raise
 
 
-def analyze_sync_timing():
+def analyze_sync_timing() -> None:
     """Run timing analysis on sync operations"""
     print("🔍 SYNC TIMING ANALYSIS")
     print("=" * 40)
@@ -108,18 +108,19 @@ def analyze_sync_timing():
     original_get_reading_progress = sync_manager.audiobookshelf.get_reading_progress
     original_get_user_books = sync_manager.hardcover.get_user_books
 
-    def timed_get_reading_progress():
+    def timed_get_reading_progress() -> List[Dict[str, Any]]:
         return sync_manager._time_operation(
             "Audiobookshelf Progress Fetch", original_get_reading_progress
         )
 
-    def timed_get_user_books():
+    def timed_get_user_books() -> List[Dict[str, Any]]:
         return sync_manager._time_operation(
             "Hardcover Library Fetch", original_get_user_books
         )
 
-    sync_manager.audiobookshelf.get_reading_progress = timed_get_reading_progress
-    sync_manager.hardcover.get_user_books = timed_get_user_books
+    # Use monkey patching to replace methods
+    sync_manager.audiobookshelf.get_reading_progress = timed_get_reading_progress  # type: ignore[method-assign]
+    sync_manager.hardcover.get_user_books = timed_get_user_books  # type: ignore[method-assign]
 
     # Run the sync
     result = sync_manager.sync_progress()

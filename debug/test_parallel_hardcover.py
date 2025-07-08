@@ -10,15 +10,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import time
 
-from config import Config
-from hardcover_client import (
+from src.config import Config
+from src.hardcover_client import (
     MAX_PARALLEL_WORKERS,
     RATE_LIMIT_PER_MINUTE,
     HardcoverClient,
 )
 
 
-def test_parallel_status_updates():
+def test_parallel_status_updates() -> None:
     """Test parallel status updates"""
     config = Config()
     client = HardcoverClient(config.HARDCOVER_TOKEN)
@@ -79,7 +79,7 @@ def test_parallel_status_updates():
     print(f"   Restore success: {restore_results['success']}/{len(restore_updates)}")
 
 
-def test_sequential_vs_parallel():
+def test_sequential_vs_parallel() -> None:
     """Compare sequential vs parallel performance"""
     config = Config()
     client = HardcoverClient(config.HARDCOVER_TOKEN)

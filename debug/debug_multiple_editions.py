@@ -8,11 +8,11 @@ import os
 
 from dotenv import load_dotenv
 
-from config import Config
-from hardcover_client import HardcoverClient
+from src.config import Config
+from src.hardcover_client import HardcoverClient
 
 
-def main():
+def main() -> None:
     """Debug multiple edition progress records"""
     load_dotenv("secrets.env")
 

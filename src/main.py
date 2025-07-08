@@ -64,9 +64,11 @@ def setup_logging(verbose: bool = False) -> None:
         logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
         logging.getLogger("requests").setLevel(logging.WARNING)
 
-        # Suppress our own chatty client logs
+        # Suppress our own chatty client logs but keep INFO level for sync_manager
         logging.getLogger("audiobookshelf_client").setLevel(logging.WARNING)
         logging.getLogger("hardcover_client").setLevel(logging.WARNING)
+        # Ensure sync_manager logs are shown at INFO level
+        logging.getLogger("sync_manager").setLevel(logging.INFO)
 
 
 def sync_once(sync_manager: SyncManager) -> dict:
@@ -421,7 +423,7 @@ def run_cache_interactive() -> None:
                 print(f"   Cache file size: {cache_stats['cache_file_size']} bytes")
 
                 if cache_stats["total_books"] > 0:
-                    print(f"   📁 Cache file: .book_cache.db (SQLite)")
+                    print(f"   📁 Cache file: data/.book_cache.db (SQLite)")
                 else:
                     print("   📁 No book cache file exists yet")
 

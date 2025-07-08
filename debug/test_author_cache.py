@@ -10,11 +10,11 @@ import sys
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sync_manager import BookCache
+from src.sync_manager import BookCache
 
 
-def main():
-    """Test author caching functionality"""
+def main() -> None:
+    """Test author cache functionality"""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
@@ -25,38 +25,43 @@ def main():
         cache = BookCache()
         logger.info("Cache initialized")
 
-        # Test storing a book with author
-        test_isbn = "9780593135228"
+        # Test storing and retrieving author data
+        test_isbn = "9780593099322"
         test_title = "Project Hail Mary"
         test_author = "Andy Weir"
         test_edition_id = 12345
 
-        logger.info(f"Storing test book: {test_title} by {test_author}")
+        logger.info(f"Testing with: {test_title} by {test_author}")
+
+        # Store edition mapping with author
         cache.store_edition_mapping(test_isbn, test_title, test_edition_id, test_author)
+        logger.info("Stored edition mapping with author")
 
-        # Test retrieving books by author
-        logger.info(f"Retrieving books by {test_author}")
-        books = cache.get_books_by_author(test_author)
+        # Retrieve edition
+        retrieved_edition = cache.get_edition_for_book(test_isbn, test_title)
+        logger.info(f"Retrieved edition ID: {retrieved_edition}")
 
-        if books:
-            logger.info(f"Found {len(books)} books by {test_author}:")
-            for book in books:
-                logger.info(
-                    f"  - {book['title']} (ISBN: {book['isbn']}, Edition: {book['edition_id']})"
-                )
-        else:
-            logger.warning(f"No books found by {test_author}")
+        # Check if author is stored
+        with cache._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT author FROM books WHERE isbn = ? AND title = ?",
+                (test_isbn, test_title.lower().strip()),
+            )
+            result = cursor.fetchone()
+            if result and result["author"]:
+                logger.info(f"✅ Author stored: {result['author']}")
+            else:
+                logger.warning("❌ Author not found in cache")
 
-        # Test with non-existent author
-        logger.info("Testing with non-existent author")
-        books = cache.get_books_by_author("Non-existent Author")
-        logger.info(f"Found {len(books)} books by non-existent author")
+        # Test getting books by author
+        books_by_author = cache.get_books_by_author(test_author)
+        logger.info(f"Found {len(books_by_author)} books by {test_author}")
 
-        # Test cache stats
-        stats = cache.get_cache_stats()
-        logger.info(f"Cache stats: {stats}")
+        for book in books_by_author:
+            logger.info(f"  - {book['title']} (ISBN: {book['isbn']})")
 
-        logger.info("Author caching test completed successfully!")
+        logger.info("✅ Author cache test completed!")
 
     except Exception as e:
         logger.error(f"Test failed: {str(e)}")

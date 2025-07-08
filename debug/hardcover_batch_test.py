@@ -5,14 +5,15 @@ Test script to check if Hardcover supports GraphQL aliases for batching
 
 import os
 import sys
+from typing import Any
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import Config
-from hardcover_client import HardcoverClient
+from src.config import Config
+from src.hardcover_client import HardcoverClient
 
 
-def test_graphql_aliases():
+def test_graphql_aliases() -> bool:
     """Test if Hardcover supports GraphQL aliases for batching"""
 
     config = Config()
@@ -121,7 +122,7 @@ def test_graphql_aliases():
         return False
 
 
-def test_parallel_mutations():
+def test_parallel_mutations() -> bool:
     """Test parallel execution of individual mutations"""
     import time
     from concurrent.futures import ThreadPoolExecutor
@@ -129,7 +130,7 @@ def test_parallel_mutations():
     config = Config()
     client = HardcoverClient(config.HARDCOVER_TOKEN)
 
-    def update_status(book_id, status):
+    def update_status(book_id: int, status: int) -> Any:
         """Update a single book status"""
         try:
             # Use a safe test - just get current progress instead of updating
@@ -168,7 +169,7 @@ def test_parallel_mutations():
     return parallel_time < sequential_time
 
 
-if __name__ == "__main__":
+def main() -> None:
     print("🔍 HARDCOVER BATCH OPERATIONS TEST")
     print("=" * 40)
 
@@ -188,3 +189,7 @@ if __name__ == "__main__":
         print(
             f"\n💡 RECOMMENDATION: Use parallel individual mutations for optimization"
         )
+
+
+if __name__ == "__main__":
+    main()

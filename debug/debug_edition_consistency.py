@@ -8,13 +8,13 @@ import os
 
 from dotenv import load_dotenv
 
-from audiobookshelf_client import AudiobookshelfClient
-from config import Config
-from hardcover_client import HardcoverClient
-from sync_manager import SyncManager
+from src.config import Config
+from src.audiobookshelf_client import AudiobookshelfClient
+from src.hardcover_client import HardcoverClient
+from src.sync_manager import SyncManager
 
 
-def main():
+def main() -> None:
     """Debug edition consistency issues"""
     load_dotenv("secrets.env")
 

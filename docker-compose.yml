@@ -2,15 +2,17 @@ services:
   abs-hardcover-sync:
     # Pulls from GitHub Container Registry: https://github.com/rohit-purandare/audiobookshelf-hardcover-sync/pkgs/container/audiobookshelf-hardcover-sync
     image: ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
-    # Uncomment to build locally instead of pulling
     # build: .
     container_name: abs-hardcover-sync
     restart: unless-stopped
+    user: "1000:1000"  # Run as current user to avoid permission issues
     environment:
       - PYTHONPATH=/app
     volumes:
       # Mount config files for persistence
       - ./config/secrets.env:/app/config/secrets.env:ro
+      # Mount cache directory for persistence
+      - ./data:/app/data
       # Removed old cache file mounts
     # Interactive mode for CLI
     stdin_open: true

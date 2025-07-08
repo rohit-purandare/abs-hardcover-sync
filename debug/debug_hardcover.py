@@ -6,11 +6,11 @@ Debug script to examine Hardcover library data and ISBN extraction
 import json
 import logging
 
-from config import Config
-from hardcover_client import HardcoverClient
+from src.config import Config
+from src.hardcover_client import HardcoverClient
 
 
-def main():
+def main() -> None:
     """Debug Hardcover library data"""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"

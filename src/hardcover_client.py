@@ -11,21 +11,21 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-MAX_PARALLEL_WORKERS = 5  # Conservative default for rate limiting
-RATE_LIMIT_PER_MINUTE = 50
-RATE_LIMIT_DELAY = 60.0 / RATE_LIMIT_PER_MINUTE  # 1.2 seconds between requests
+# Rate limiting configuration
+RATE_LIMIT_PER_MINUTE = 60
+MAX_PARALLEL_WORKERS = 5
 
 
 class RateLimiter:
-    """Simple rate limiter for API calls"""
+    """Simple rate limiter for API requests"""
 
-    def __init__(self, max_requests_per_minute: int = RATE_LIMIT_PER_MINUTE):
+    def __init__(self, max_requests_per_minute: int = RATE_LIMIT_PER_MINUTE) -> None:
         self.max_requests = max_requests_per_minute
         self.delay = 60.0 / max_requests_per_minute
-        self.last_request_time = 0
+        self.last_request_time: float = 0.0
         self.logger = logging.getLogger(__name__)
 
-    def wait_if_needed(self):
+    def wait_if_needed(self) -> None:
         """Wait if needed to respect rate limit"""
         current_time = time.time()
         time_since_last = current_time - self.last_request_time
@@ -41,7 +41,7 @@ class RateLimiter:
 class HardcoverClient:
     """Client for interacting with Hardcover GraphQL API"""
 
-    def __init__(self, token: str):
+    def __init__(self, token: str) -> None:
         self.token = token
         self.api_url = "https://api.hardcover.app/v1/graphql"
         self.logger = logging.getLogger(__name__)
@@ -460,7 +460,7 @@ class HardcoverClient:
             self.logger.error(f"Failed to update book status: {str(e)}")
             return False
 
-    def get_book_current_progress(self, user_book_id: int) -> Optional[Dict]:
+    def get_book_current_progress(self, user_book_id: int) -> Optional[Dict[str, Any]]:
         """
         Get current reading progress for a specific user_book
         Returns progress info or None if no progress exists
@@ -555,7 +555,7 @@ class HardcoverClient:
             self.logger.error(f"Error searching for ISBN {isbn}: {str(e)}")
             return []
 
-    def add_book_to_library(self, book_id: int, status_id: int = 2) -> Optional[Dict]:
+    def add_book_to_library(self, book_id: int, status_id: int = 2) -> Optional[Dict[str, Any]]:
         """
         Add a book to user's library
 
@@ -588,7 +588,7 @@ class HardcoverClient:
                 user_book = result["insert_user_book"]
                 if user_book:
                     self.logger.info(f"Successfully added book {book_id} to library")
-                    return user_book
+                    return user_book  # type: ignore[no-any-return]
 
             self.logger.warning(f"Failed to add book {book_id} to library")
             return None
@@ -598,8 +598,8 @@ class HardcoverClient:
             return None
 
     def _execute_query(
-        self, query: str, variables: Optional[Dict] = None
-    ) -> Optional[Dict]:
+        self, query: str, variables: Optional[Dict[str, Any]] = None
+    ) -> Optional[Dict[str, Any]]:
         """Execute GraphQL query with rate limiting"""
         self.rate_limiter.wait_if_needed()
 
@@ -618,7 +618,7 @@ class HardcoverClient:
                 self.logger.error(f"GraphQL errors: {data['errors']}")
                 return None
 
-            return data.get("data")
+            return data.get("data")  # type: ignore[no-any-return]
 
         except requests.exceptions.RequestException as e:
             self.logger.error(f"Request failed: {str(e)}")
@@ -630,7 +630,7 @@ class HardcoverClient:
             self.logger.error(f"Unexpected error: {str(e)}")
             return None
 
-    def get_current_user(self) -> Optional[Dict]:
+    def get_current_user(self) -> Optional[Dict[str, Any]]:
         """Get current user information"""
         query = """
         query {
@@ -685,7 +685,7 @@ class HardcoverClient:
                     "error": str(e),
                 }
 
-        results = {"success": 0, "failed": 0, "errors": []}
+        results: Dict[str, Any] = {"success": 0, "failed": 0, "errors": []}
 
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
             futures = [
@@ -695,9 +695,9 @@ class HardcoverClient:
             for future in as_completed(futures):
                 result = future.result()
                 if result["success"]:
-                    results["success"] += 1
+                    results["success"] = results["success"] + 1
                 else:
-                    results["failed"] += 1
+                    results["failed"] = results["failed"] + 1
                     if result["error"]:
                         results["errors"].append(
                             f"Book {result['user_book_id']}: {result['error']}"
@@ -744,7 +744,7 @@ class HardcoverClient:
                     "error": str(e),
                 }
 
-        results = {"success": 0, "failed": 0, "errors": []}
+        results: Dict[str, Any] = {"success": 0, "failed": 0, "errors": []}
 
         with ThreadPoolExecutor(max_workers=MAX_PARALLEL_WORKERS) as executor:
             futures = [
@@ -754,9 +754,9 @@ class HardcoverClient:
             for future in as_completed(futures):
                 result = future.result()
                 if result["success"]:
-                    results["success"] += 1
+                    results["success"] = results["success"] + 1
                 else:
-                    results["failed"] += 1
+                    results["failed"] = results["failed"] + 1
                     if result["error"]:
                         results["errors"].append(
                             f"Book {result['user_book_id']}: {result['error']}"

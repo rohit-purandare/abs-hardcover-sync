@@ -20,7 +20,7 @@ class TestConfig:
     def test_config_import(self):
         """Test that config module can be imported"""
         try:
-            from config import Config
+            from src.config import Config
 
             assert Config is not None
         except ImportError as e:
@@ -39,7 +39,7 @@ class TestConfig:
                 "HARDCOVER_TOKEN": "test_token",
             },
         ):
-            from config import Config
+            from src.config import Config
 
             config = Config()
             assert config.AUDIOBOOKSHELF_URL == "https://example.com"

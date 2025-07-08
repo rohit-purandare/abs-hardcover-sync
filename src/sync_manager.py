@@ -26,61 +26,76 @@ if __name__ == "__main__":
 class BookCache:
     """SQLite-based cache for storing book edition mappings and progress tracking"""
 
-    def __init__(self, cache_file: str = ".book_cache.db"):
+    def __init__(self, cache_file: str = "data/.book_cache.db"):
         self.cache_file = cache_file
         self.logger = logging.getLogger(__name__)
-        self._init_database()
-        self.logger.debug(f"SQLite cache initialized: {cache_file}")
+        import os
+        abs_path = os.path.abspath(self.cache_file)
+        self.logger.info(f"BookCache: Database file path: {self.cache_file} (absolute: {abs_path})")
+        try:
+            self._init_database()
+            self.logger.debug(f"SQLite cache initialized: {self.cache_file}")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize database at {self.cache_file}: {str(e)}")
+            raise
 
     def _init_database(self) -> None:
         """Initialize SQLite database with schema"""
         try:
+            # Ensure the directory exists
+            import os
+            cache_dir = os.path.dirname(self.cache_file)
+            if cache_dir and not os.path.exists(cache_dir):
+                os.makedirs(cache_dir, exist_ok=True)
+                self.logger.info(f"Created cache directory: {cache_dir}")
+            
             with sqlite3.connect(self.cache_file) as conn:
                 cursor = conn.cursor()
-
-                # Create books table
-                cursor.execute(
-                    """
+                
+                # Create books table if it doesn't exist
+                cursor.execute("""
                     CREATE TABLE IF NOT EXISTS books (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         isbn TEXT NOT NULL,
                         title TEXT NOT NULL,
-                        author TEXT,
                         edition_id INTEGER,
-                        progress_percent REAL,
-                        last_synced TEXT,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        author TEXT,
+                        last_progress REAL DEFAULT 0.0,
+                        progress_percent REAL DEFAULT 0.0,
+                        last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         UNIQUE(isbn, title)
                     )
-                """
-                )
-
-                # Add author column if it doesn't exist (for existing databases)
+                """)
+                
+                # Add missing columns if they don't exist (for existing databases)
                 try:
-                    cursor.execute("ALTER TABLE books ADD COLUMN author TEXT")
-                    self.logger.debug("Added author column to existing database")
+                    cursor.execute("ALTER TABLE books ADD COLUMN progress_percent REAL DEFAULT 0.0")
                 except sqlite3.OperationalError:
-                    # Column already exists
-                    pass
-
-                # Create indexes for fast lookups
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_isbn_title ON books(isbn, title)"
-                )
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_last_synced ON books(last_synced)"
-                )
-                cursor.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_progress ON books(progress_percent)"
-                )
+                    pass  # Column already exists
+                
+                try:
+                    cursor.execute("ALTER TABLE books ADD COLUMN last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
+                
+                try:
+                    cursor.execute("ALTER TABLE books ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
+                
+                # Create indexes for better performance
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_isbn ON books(isbn)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_title ON books(title)")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_edition_id ON books(edition_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_author ON books(author)")
-
+                
                 conn.commit()
-                self.logger.debug("Database schema initialized")
-
+                self.logger.info(f"Database schema initialized successfully at {self.cache_file}")
+                
         except Exception as e:
-            self.logger.error(f"Failed to initialize database: {str(e)}")
+            self.logger.error(f"Database initialization failed: {str(e)}")
             raise
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -119,7 +134,7 @@ class BookCache:
                     self.logger.debug(
                         f"Cache hit for {title}: edition {result['edition_id']}"
                     )
-                    return result["edition_id"]
+                    return int(result["edition_id"])  # type: ignore[no-any-return]
                 return None
 
         except Exception as e:
@@ -176,9 +191,12 @@ class BookCache:
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+                normalized_title = title.lower().strip()
+                self.logger.debug(f"Looking up progress for ISBN: {isbn}, title: '{normalized_title}'")
+                
                 cursor.execute(
                     "SELECT progress_percent FROM books WHERE isbn = ? AND title = ?",
-                    (isbn, title.lower().strip()),
+                    (isbn, normalized_title),
                 )
                 result = cursor.fetchone()
 
@@ -188,6 +206,8 @@ class BookCache:
                         f"Found last progress for {title}: {progress:.1f}%"
                     )
                     return progress
+                else:
+                    self.logger.debug(f"No cached progress found for {title} (ISBN: {isbn})")
                 return None
 
         except Exception as e:
@@ -253,16 +273,21 @@ class BookCache:
             self.logger.debug(f"First sync for {title}, will sync")
             return True
 
+        # Round both values to 2 decimal places to avoid floating point drift
+        rounded_current = round(current_progress, 2)
+        rounded_last = round(last_progress, 2)
+        self.logger.info(f"Comparing progress for {title}: Audiobookshelf={rounded_current}, Cache={rounded_last}")
+
         # Check if progress has increased (allowing for small rounding differences)
-        progress_changed = current_progress > last_progress + 0.1
+        progress_changed = rounded_current > rounded_last + 0.1
 
         if progress_changed:
             self.logger.debug(
-                f"Progress changed for {title}: {last_progress:.1f}% → {current_progress:.1f}%"
+                f"Progress changed for {title}: {rounded_last:.2f}% → {rounded_current:.2f}%"
             )
         else:
             self.logger.debug(
-                f"No progress change for {title}: {current_progress:.1f}% (last: {last_progress:.1f}%)"
+                f"No progress change for {title}: {rounded_current:.2f}% (last: {rounded_last:.2f}%)"
             )
 
         return progress_changed
@@ -415,7 +440,9 @@ class SyncManager:
         self.hardcover = HardcoverClient(config.HARDCOVER_TOKEN)
 
         # Initialize book cache and migrate from old caches
+        self.logger.info("Creating BookCache instance...")
         self.book_cache = BookCache()
+        self.logger.info(f"BookCache created with cache_file: {self.book_cache.cache_file}")
         # Remove old cache migration call
         # self.book_cache.migrate_from_old_caches()
 
@@ -427,7 +454,7 @@ class SyncManager:
             config, "MAX_WORKERS", 3
         )  # Limit concurrent API calls
         self.enable_parallel = getattr(config, "ENABLE_PARALLEL", True)
-        self.timing_data = {}  # Store timing information
+        self.timing_data: Dict[str, float] = {}  # Store timing information
 
         self.logger.info(
             f"SyncManager initialized (dry_run: {dry_run}, min_threshold: {self.min_progress_threshold}%, parallel: {self.enable_parallel}, workers: {self.max_workers})"
@@ -1160,7 +1187,7 @@ class SyncManager:
                     self.logger.debug(
                         f"Using cached edition {cached_edition_id} for {title}"
                     )
-                    return edition
+                    return edition  # type: ignore[no-any-return]
             self.logger.debug(
                 f"Cached edition {cached_edition_id} not found in available editions for {title}"
             )
@@ -1177,7 +1204,7 @@ class SyncManager:
                         self.logger.debug(
                             f"Using existing progress edition {existing_edition_id} for {title}"
                         )
-                        return edition
+                        return edition  # type: ignore[no-any-return]
                 self.logger.debug(
                     f"Existing progress edition {existing_edition_id} not found, falling back for {title}"
                 )
@@ -1190,7 +1217,7 @@ class SyncManager:
                     self.logger.debug(
                         f"Using linked edition {user_book_edition_id} for {title}"
                     )
-                    return edition
+                    return edition  # type: ignore[no-any-return]
             self.logger.debug(
                 f"Linked edition {user_book_edition_id} not found, falling back for {title}"
             )
@@ -1199,7 +1226,7 @@ class SyncManager:
         self.logger.debug(
             f"Using ISBN-matched edition {isbn_edition.get('id')} for {title}"
         )
-        return isbn_edition
+        return isbn_edition  # type: ignore[no-any-return]
 
     def _handle_completion_status(
         self,
@@ -1333,7 +1360,7 @@ class SyncManager:
         """Get all books by a specific author from the cache"""
         return self.book_cache.get_books_by_author(author_name)
 
-    def _get_cached_book_status(self, user_book_id: int, title: str) -> Optional[Dict]:
+    def _get_cached_book_status(self, user_book_id: int, title: str) -> Optional[Dict[str, Any]]:
         """Get cached book status to avoid API calls"""
         # For now, we'll always make the API call, but we could extend the cache
         # to store book status information as well
@@ -1455,12 +1482,6 @@ class SyncManager:
                     "reason": "Already in appropriate status",
                 }
 
-        return {
-            "status": "no_change",
-            "title": title,
-            "reason": "No status change needed",
-        }
-
     def _extract_author_from_data(
         self, abs_book: Dict, hardcover_match: Dict
     ) -> Optional[str]:
@@ -1485,7 +1506,7 @@ class SyncManager:
                 if author_data and author_data.get("name"):
                     author_name = author_data["name"]
                     self.logger.debug(f"Extracted author from Hardcover: {author_name}")
-                    return author_name
+                    return str(author_name)  # type: ignore[no-any-return]
         except Exception as e:
             self.logger.debug(f"Could not extract author from Hardcover data: {str(e)}")
 
@@ -1501,7 +1522,7 @@ class SyncManager:
                     self.logger.debug(
                         f"Extracted author from Audiobookshelf (fallback): {author}"
                     )
-                    return author
+                    return str(author)  # type: ignore[no-any-return]
         except Exception as e:
             self.logger.debug(
                 f"Could not extract author from Audiobookshelf data: {str(e)}"

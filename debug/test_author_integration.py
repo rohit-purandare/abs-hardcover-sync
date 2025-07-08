@@ -10,11 +10,11 @@ import sys
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import Config
-from sync_manager import SyncManager
+from src.config import Config
+from src.sync_manager import SyncManager
 
 
-def main():
+def main() -> None:
     """Test author integration during sync"""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"

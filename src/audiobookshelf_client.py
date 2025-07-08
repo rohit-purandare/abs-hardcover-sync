@@ -66,7 +66,7 @@ class AudiobookshelfClient:
             books_to_sync = []
 
             # --- PARALLEL FETCH START ---
-            def safe_get_details(item_id):
+            def safe_get_details(item_id: str) -> Optional[Dict[str, Any]]:
                 try:
                     return self._get_library_item_details(item_id)
                 except Exception as e:
@@ -117,7 +117,7 @@ class AudiobookshelfClient:
         response = self._make_request("GET", "/api/me")
         if response:
             try:
-                return response.json()
+                return response.json()  # type: ignore[no-any-return]
             except requests.exceptions.JSONDecodeError as e:
                 self.logger.error(f"Invalid JSON from /api/me: {str(e)}")
         return None
@@ -127,7 +127,7 @@ class AudiobookshelfClient:
         response = self._make_request("GET", "/api/me/items-in-progress")
         if response:
             try:
-                data = response.json()
+                data = response.json()  # type: ignore[no-any-return]
                 return data.get("libraryItems", [])
             except requests.exceptions.JSONDecodeError as e:
                 self.logger.error(
@@ -142,7 +142,7 @@ class AudiobookshelfClient:
             return None
 
         try:
-            item_data = response.json()
+            item_data = response.json()  # type: ignore[no-any-return]
 
             # Get user's progress for this item
             progress_data = self._get_user_progress(item_id)
@@ -169,7 +169,7 @@ class AudiobookshelfClient:
         )
         if response:
             try:
-                return response.json()
+                return response.json()  # type: ignore[no-any-return]
             except requests.exceptions.JSONDecodeError:
                 # Not an error, just means no JSON body on success
                 return None
@@ -212,7 +212,7 @@ class AudiobookshelfClient:
         response = self._make_request("GET", "/api/libraries")
         if response:
             try:
-                return response.json().get("libraries", [])
+                return response.json().get("libraries", [])  # type: ignore[no-any-return]
             except requests.exceptions.JSONDecodeError as e:
                 self.logger.error(f"Invalid JSON from /api/libraries: {str(e)}")
         return []
@@ -227,7 +227,7 @@ class AudiobookshelfClient:
                 "GET", f"/api/libraries/{library_id}/items", params=params
             )
             if response:
-                data = response.json()
+                data = response.json()  # type: ignore[no-any-return]
                 return data.get("results", [])
             return []
         except requests.exceptions.JSONDecodeError as e:

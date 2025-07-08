@@ -7,14 +7,15 @@ import logging
 import os
 import sqlite3
 import sys
+from typing import Any, Dict, List
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sync_manager import BookCache
+from src.sync_manager import BookCache
 
 
-def main():
+def main() -> None:
     """Check cache for author data"""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -43,7 +44,7 @@ def main():
                 logger.info(f"Found {len(results)} books with author data:")
 
                 # Group by author
-                authors = {}
+                authors: Dict[str, List[Dict[str, Any]]] = {}
                 for row in results:
                     author = row["author"]
                     if author not in authors:

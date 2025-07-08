@@ -6,11 +6,11 @@ Debug script to examine Audiobookshelf metadata and ISBN extraction
 import json
 import logging
 
-from audiobookshelf_client import AudiobookshelfClient
-from config import Config
+from src.config import Config
+from src.audiobookshelf_client import AudiobookshelfClient
 
 
-def main():
+def main() -> None:
     """Debug metadata extraction"""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
