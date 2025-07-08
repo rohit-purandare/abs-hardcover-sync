@@ -6,6 +6,7 @@
 - 🔄 Runs on a schedule, in the background
 - 🐳 Production-ready Docker image (Alpine, healthcheck, non-root)
 - 🛡️ Secure: no secrets in the image, no data sent to third parties
+- 💾 Persistent SQLite cache for efficient syncing
 
 ---
 
@@ -15,7 +16,7 @@ The fastest way to get started:
 
 ```sh
 curl -O https://raw.githubusercontent.com/rohit-purandare/audiobookshelf-hardcover-sync/main/docker-compose.yml
-mkdir -p config
+mkdir -p config data
 curl -o config/secrets.env https://raw.githubusercontent.com/rohit-purandare/audiobookshelf-hardcover-sync/main/config/secrets.env.example
 # Edit config/secrets.env with your API tokens
 # Then start the service:
@@ -34,24 +35,33 @@ You **do not need to clone this repo** to use the tool! Just:
        image: ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
        container_name: abs-hardcover-sync
        restart: unless-stopped
+       user: "1000:1000"  # Run as current user to avoid permission issues
        environment:
          - PYTHONPATH=/app
        volumes:
+         # Mount config files for persistence
          - ./config/secrets.env:/app/config/secrets.env:ro
-         - ./.progress_cache.json:/app/.progress_cache.json
-         - ./.edition_cache.json:/app/.edition_cache.json
+         # Mount cache directory for persistence
+         - ./data:/app/data
+       # Interactive mode for CLI
+       stdin_open: true
+       tty: true
+       # Use host network for potential local API access
+       network_mode: host
+       # Default command - can be overridden
+       command: ["cron"]
+       # Healthcheck for Compose-level monitoring
        healthcheck:
          test: ["CMD", "python", "src/main.py", "--version"]
          interval: 30s
          timeout: 10s
          retries: 3
          start_period: 10s
-       command: ["cron"]
    ```
 
-2. **Create your config directory and secrets file:**
+2. **Create your config and data directories:**
    ```bash
-   mkdir -p config
+   mkdir -p config data
    curl -o config/secrets.env https://raw.githubusercontent.com/rohit-purandare/audiobookshelf-hardcover-sync/main/config/secrets.env.example
    ```
 
@@ -92,6 +102,15 @@ You **do not need to clone this repo** to use the tool! Just:
      docker-compose down
      ```
 
+5. **Manual sync (optional):**
+   ```bash
+   # Run a one-time sync
+   docker-compose run --rm abs-hardcover-sync sync
+   
+   # Run a dry-run sync (no changes made)
+   docker-compose run --rm abs-hardcover-sync sync --dry-run
+   ```
+
 ---
 
 ## Quick Start: Python (For Developers/Advanced Users)
@@ -125,9 +144,21 @@ You **do not need to clone this repo** to use the tool! Just:
 - Updates reading progress in Hardcover
 - Auto-completes books at 95%+
 - Skips books with no ISBN or 0% progress
-- Caches editions for faster syncs
+- **SQLite cache for efficient syncing** - only syncs books with changed progress
 - Parallel processing for speed
 - Robust error handling and logging
+
+## Cache System
+The tool uses a SQLite database (`data/.book_cache.db`) to cache:
+- **Book editions** - Maps ISBNs to Hardcover edition IDs for faster lookups
+- **Progress values** - Only syncs books when progress has changed
+- **Author information** - Caches author data to reduce API calls
+
+**Benefits:**
+- **First sync**: Full sync of all books with progress
+- **Subsequent syncs**: Only books with changed progress are synced
+- **Performance**: Significantly faster after the initial sync
+- **Persistence**: Cache survives container restarts
 
 ## Requirements
 - Audiobookshelf server (with API access)
