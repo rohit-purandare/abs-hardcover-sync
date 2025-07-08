@@ -8,21 +8,19 @@ import logging
 import math
 import os
 import sqlite3
+import sys
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from tqdm import tqdm
 
-try:
-    from .audiobookshelf_client import AudiobookshelfClient
-    from .hardcover_client import HardcoverClient
-    from .utils import calculate_progress_percentage, normalize_isbn
-except ImportError:
-    # When running directly, use absolute imports
-    from audiobookshelf_client import AudiobookshelfClient
-    from hardcover_client import HardcoverClient
-    from utils import calculate_progress_percentage, normalize_isbn
+from src.audiobookshelf_client import AudiobookshelfClient
+from src.hardcover_client import HardcoverClient
+from src.utils import calculate_progress_percentage, normalize_isbn
+
+if __name__ == "__main__":
+    sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 
 class BookCache:
@@ -831,50 +829,38 @@ class SyncManager:
                     abs_book = future_to_book[future]
                     result["books_processed"] += 1
 
-                    try:
-                        sync_result = future.result()
-                        sync_results.append(sync_result)
+                    # The wrapper function catches exceptions and returns a dict,
+                    # so we don't need a try/except block here.
+                    sync_result = future.result()
+                    sync_results.append(sync_result)
 
-                        # Update progress bar
-                        title = (
-                            abs_book.get("media", {})
-                            .get("metadata", {})
-                            .get("title", "Unknown")
+                    # Update progress bar
+                    title = (
+                        abs_book.get("media", {})
+                        .get("metadata", {})
+                        .get("title", "Unknown")
+                    )
+                    book_time = self.timing_data.get(f"book_{title[:20]}", 0)
+
+                    if sync_result["status"] == "synced":
+                        pbar.set_postfix(
+                            {"status": "✓ Synced", "time": f"{book_time:.2f}s"}
                         )
-                        progress_percent = abs_book.get("progress_percentage", 0)
-                        book_time = self.timing_data.get(f"book_{title[:20]}", 0)
-
-                        if sync_result["status"] == "synced":
-                            pbar.set_postfix(
-                                {"status": "✓ Synced", "time": f"{book_time:.2f}s"}
-                            )
-                        elif sync_result["status"] == "completed":
-                            pbar.set_postfix(
-                                {"status": "✓ Completed", "time": f"{book_time:.2f}s"}
-                            )
-                        elif sync_result["status"] == "auto_added":
-                            pbar.set_postfix(
-                                {"status": "✓ Added", "time": f"{book_time:.2f}s"}
-                            )
-                        elif sync_result["status"] == "skipped":
-                            pbar.set_postfix(
-                                {"status": "⏭ Skipped", "time": f"{book_time:.2f}s"}
-                            )
-                        elif sync_result["status"] == "failed":
-                            pbar.set_postfix(
-                                {"status": "✗ Failed", "time": f"{book_time:.2f}s"}
-                            )
-
-                    except Exception as e:
-                        error_msg = f"Error processing book: {str(e)}"
-                        self.logger.error(error_msg)
-                        result["errors"].append(error_msg)
-                        sync_results.append(
-                            {
-                                "status": "failed",
-                                "title": "Unknown",
-                                "reason": error_msg,
-                            }
+                    elif sync_result["status"] == "completed":
+                        pbar.set_postfix(
+                            {"status": "✓ Completed", "time": f"{book_time:.2f}s"}
+                        )
+                    elif sync_result["status"] == "auto_added":
+                        pbar.set_postfix(
+                            {"status": "✓ Added", "time": f"{book_time:.2f}s"}
+                        )
+                    elif sync_result["status"] == "skipped":
+                        pbar.set_postfix(
+                            {"status": "⏭ Skipped", "time": f"{book_time:.2f}s"}
+                        )
+                    elif sync_result["status"] == "failed":
+                        pbar.set_postfix(
+                            {"status": "✗ Failed", "time": f"{book_time:.2f}s"}
                         )
 
                     pbar.update(1)
@@ -1336,7 +1322,7 @@ class SyncManager:
         If already completed, just updates progress if it has changed.
         """
         self.logger.info(
-            f"\U0001F4D6 Book completion check for {title}: {progress_percent:.1f}%"
+            f"\U0001f4d6 Book completion check for {title}: {progress_percent:.1f}%"
         )
 
         # Check current status in Hardcover
@@ -1374,7 +1360,7 @@ class SyncManager:
             )
 
         # If not completed, mark as completed
-        self.logger.info(f"\U0001F3AF Marking {title} as completed for the first time")
+        self.logger.info(f"\U0001f3af Marking {title} as completed for the first time")
         return self._mark_book_completed(user_book_id, edition, title)
 
     def _handle_progress_status(

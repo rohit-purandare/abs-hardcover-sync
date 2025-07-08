@@ -7,15 +7,15 @@ WORKDIR /app
 # Install system dependencies (Alpine)
 RUN apk add --no-cache git
 
-# Copy pyproject.toml and source code for dependencies
+# Copy only files required for dependency installation first
 COPY pyproject.toml ./
-COPY src ./src
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -e .
+# This layer is cached and only re-run when pyproject.toml changes
+RUN pip install --no-cache-dir .
 
-# Copy the rest of the application code (if any other files needed)
-COPY . .
+# Now copy the application source code
+COPY src/ ./src/
 
 # Create non-root user (Alpine)
 RUN adduser -D -h /app -s /bin/sh app && \

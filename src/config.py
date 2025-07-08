@@ -41,7 +41,11 @@ class Config:
 
         # Sync settings
         self.DEFAULT_SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL_HOURS", "6"))
-        self.DRY_RUN = os.getenv("DRY_RUN", "").lower() in ("true", "1", "yes")
+
+        # Default to True unless explicitly set to a "falsey" value
+        dry_run_env = os.getenv("DRY_RUN", "true").lower()
+        self.DRY_RUN = dry_run_env not in ("false", "0", "no", "n")
+
         self.MIN_PROGRESS_THRESHOLD = float(os.getenv("MIN_PROGRESS_THRESHOLD", "5.0"))
 
         # Logging settings
@@ -53,11 +57,10 @@ class Config:
         self.RETRY_DELAY = int(os.getenv("RETRY_DELAY_SECONDS", "5"))
 
         # Performance optimization settings
-        self.ENABLE_PARALLEL = os.getenv("ENABLE_PARALLEL", "true").lower() in (
-            "true",
-            "1",
-            "yes",
-        )
+        # Default to True unless explicitly set to a "falsey" value
+        enable_parallel_env = os.getenv("ENABLE_PARALLEL", "true").lower()
+        self.ENABLE_PARALLEL = enable_parallel_env not in ("false", "0", "no", "n")
+
         self.MAX_WORKERS = int(os.getenv("MAX_WORKERS", "3"))
 
         # Cron settings

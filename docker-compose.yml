@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   abs-hardcover-sync:
     # Pulls from GitHub Container Registry: https://github.com/rohit-purandare/audiobookshelf-hardcover-sync/pkgs/container/audiobookshelf-hardcover-sync

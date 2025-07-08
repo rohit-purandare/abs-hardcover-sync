@@ -30,18 +30,8 @@ class AudiobookshelfClient:
 
     def test_connection(self) -> bool:
         """Test connection to Audiobookshelf server"""
-        try:
-            response = self._make_request("GET", "/ping")
-            if response.status_code == 200:
-                return True
-            else:
-                self.logger.error(
-                    f"Connection test failed: HTTP {response.status_code} - {response.text}"
-                )
-                return False
-        except Exception as e:
-            self.logger.error(f"Connection test failed: {str(e)}")
-            return False
+        response = self._make_request("GET", "/ping")
+        return response is not None
 
     def get_reading_progress(self) -> List[Dict[str, Any]]:
         """
@@ -54,7 +44,8 @@ class AudiobookshelfClient:
             # Get user info first
             user_data = self._get_current_user()
             if not user_data:
-                raise Exception("Could not get current user data")
+                # Error is already logged by _get_current_user
+                raise Exception("Could not get current user data, aborting sync.")
 
             # Get library items in progress (these have some progress)
             progress_items = self._get_items_in_progress()
@@ -118,79 +109,79 @@ class AudiobookshelfClient:
 
         except Exception as e:
             self.logger.error(f"Error fetching reading progress: {str(e)}")
-            raise
+            # Do not re-raise, return empty list to prevent crash
+            return []
 
     def _get_current_user(self) -> Optional[Dict[str, Any]]:
         """Get current user information"""
-        try:
-            response = self._make_request("GET", "/api/me")
-            if response.status_code == 200:
+        response = self._make_request("GET", "/api/me")
+        if response:
+            try:
                 return response.json()
-            else:
-                self.logger.error(f"Failed to get user info: {response.status_code}")
-                return None
-        except Exception as e:
-            self.logger.error(f"Error getting user info: {str(e)}")
-            return None
+            except requests.exceptions.JSONDecodeError as e:
+                self.logger.error(f"Invalid JSON from /api/me: {str(e)}")
+        return None
 
     def _get_items_in_progress(self) -> List[Dict[str, Any]]:
         """Get library items that are currently in progress"""
-        try:
-            response = self._make_request("GET", "/api/me/items-in-progress")
-            if response.status_code == 200:
+        response = self._make_request("GET", "/api/me/items-in-progress")
+        if response:
+            try:
                 data = response.json()
                 return data.get("libraryItems", [])
-            else:
+            except requests.exceptions.JSONDecodeError as e:
                 self.logger.error(
-                    f"Failed to get items in progress: {response.status_code}"
+                    f"Invalid JSON from /api/me/items-in-progress: {str(e)}"
                 )
-                return []
-        except Exception as e:
-            self.logger.error(f"Error getting items in progress: {str(e)}")
-            return []
+        return []
 
     def _get_library_item_details(self, item_id: str) -> Optional[Dict[str, Any]]:
         """Get detailed information for a specific library item"""
+        response = self._make_request("GET", f"/api/items/{item_id}")
+        if not response:
+            return None
+
         try:
-            response = self._make_request("GET", f"/api/items/{item_id}")
-            if response.status_code == 200:
-                item_data = response.json()
+            item_data = response.json()
 
-                # Get user's progress for this item
-                progress_data = self._get_user_progress(item_id)
+            # Get user's progress for this item
+            progress_data = self._get_user_progress(item_id)
 
-                # Combine item data with progress
-                if progress_data:
-                    item_data["progress_percentage"] = (
-                        progress_data.get("progress", 0) * 100
-                    )
-                    item_data["current_time"] = progress_data.get("currentTime", 0)
-                    item_data["is_finished"] = progress_data.get("isFinished", False)
-
-                return item_data
-            else:
-                self.logger.warning(
-                    f"Could not get details for item {item_id}: {response.status_code}"
+            # Combine item data with progress
+            if progress_data:
+                item_data["progress_percentage"] = (
+                    progress_data.get("progress", 0) * 100
                 )
-                return None
-        except Exception as e:
-            self.logger.error(f"Error getting item details for {item_id}: {str(e)}")
+                item_data["current_time"] = progress_data.get("currentTime", 0)
+                item_data["is_finished"] = progress_data.get("isFinished", False)
+
+            return item_data
+        except requests.exceptions.JSONDecodeError as e:
+            self.logger.error(f"Invalid JSON for item {item_id}: {str(e)}")
             return None
 
     def _get_user_progress(self, item_id: str) -> Optional[Dict[str, Any]]:
         """Get user's progress for a specific item"""
-        try:
-            response = self._make_request("GET", f"/api/me/progress/{item_id}")
-            if response.status_code == 200:
+        # This endpoint can return 404 if there's no progress, which is normal.
+        # We suppress the error log from _make_request for this specific case.
+        response = self._make_request(
+            "GET", f"/api/me/progress/{item_id}", suppress_errors=[404]
+        )
+        if response:
+            try:
                 return response.json()
-            else:
-                # No progress data available
+            except requests.exceptions.JSONDecodeError:
+                # Not an error, just means no JSON body on success
                 return None
-        except Exception as e:
-            self.logger.debug(f"No progress data for item {item_id}: {str(e)}")
-            return None
+        return None
 
-    def _make_request(self, method: str, endpoint: str, **kwargs) -> requests.Response:
+    def _make_request(
+        self,
+        method: str,
+        endpoint: str,
+        suppress_errors: Optional[List[int]] = None,
+        **kwargs,
+    ) -> Optional[requests.Response]:
         """Make HTTP request to Audiobookshelf API"""
         url = urljoin(self.base_url, endpoint)
 
@@ -200,22 +191,31 @@ class AudiobookshelfClient:
             # Log request details for debugging
             self.logger.debug(f"{method} {url} -> {response.status_code}")
 
+            response.raise_for_status()
+
             return response
 
         except requests.exceptions.RequestException as e:
-            self.logger.error(f"Request failed: {method} {url} - {str(e)}")
-            raise
+            # Suppress logging for expected errors (like 404 for progress)
+            if (
+                suppress_errors
+                and e.response is not None
+                and e.response.status_code in suppress_errors
+            ):
+                pass
+            else:
+                self.logger.error(f"Request failed: {method} {url} - {str(e)}")
+            return None
 
     def get_libraries(self) -> List[Dict[str, Any]]:
         """Get all libraries (useful for debugging)"""
-        try:
-            response = self._make_request("GET", "/api/libraries")
-            if response.status_code == 200:
+        response = self._make_request("GET", "/api/libraries")
+        if response:
+            try:
                 return response.json().get("libraries", [])
-            return []
-        except Exception as e:
-            self.logger.error(f"Error getting libraries: {str(e)}")
-            return []
+            except requests.exceptions.JSONDecodeError as e:
+                self.logger.error(f"Invalid JSON from /api/libraries: {str(e)}")
+        return []
 
     def get_library_items(
         self, library_id: str, limit: int = 50
@@ -226,10 +226,10 @@ class AudiobookshelfClient:
             response = self._make_request(
                 "GET", f"/api/libraries/{library_id}/items", params=params
             )
-            if response.status_code == 200:
+            if response:
                 data = response.json()
                 return data.get("results", [])
             return []
-        except Exception as e:
-            self.logger.error(f"Error getting library items: {str(e)}")
+        except requests.exceptions.JSONDecodeError as e:
+            self.logger.error(f"Error decoding library items JSON: {str(e)}")
             return []

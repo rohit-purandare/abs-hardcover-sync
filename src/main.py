@@ -17,13 +17,11 @@ from typing import Optional
 import pytz
 from croniter import croniter
 
-try:
-    from .config import Config
-    from .sync_manager import SyncManager
-except ImportError:
-    # When running directly, use absolute imports
-    from config import Config
-    from sync_manager import SyncManager
+from src.config import Config
+from src.sync_manager import SyncManager
+
+if __name__ == "__main__":
+    sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 
 def setup_logging(verbose: bool = False) -> None:
