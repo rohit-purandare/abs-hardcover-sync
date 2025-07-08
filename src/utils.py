@@ -25,6 +25,24 @@ def normalize_isbn(isbn: str) -> Optional[str]:
     return clean_isbn
 
 
+def normalize_asin(asin: str) -> Optional[str]:
+    """
+    Normalize ASIN by removing spaces and converting to uppercase
+    Returns clean ASIN or None if invalid
+    """
+    if not asin:
+        return None
+
+    # Remove spaces and convert to uppercase
+    clean_asin = re.sub(r"\s+", "", asin.upper())
+
+    # ASINs are exactly 10 characters, alphanumeric
+    if len(clean_asin) == 10 and re.match(r"^[A-Z0-9]{10}$", clean_asin):
+        return clean_asin
+
+    return None
+
+
 def calculate_progress_percentage(current_page: int, total_pages: int) -> float:
     """
     Calculate progress percentage from current page and total pages

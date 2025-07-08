@@ -431,7 +431,7 @@ def run_cache_interactive() -> None:
             elif choice == "2":
                 # Clear book cache
                 confirm = (
-                    input("🗑️  Are you sure you want to clear the book cache? (y/N): ")
+                    input("🗑️  Are you sure you want to clear the ENTIRE book cache (progress, editions, authors, etc.)? (y/N): ")
                     .strip()
                     .lower()
                 )
@@ -597,8 +597,8 @@ def main() -> None:
     parser.add_argument(
         "command",
         nargs="?",  # Make command optional
-        choices=["sync", "test", "config", "clear-cache", "clear-editions", "cron"],
-        help="Command to execute: sync (one-time), test (connections), config (show configuration), clear-cache (clear all cache), clear-editions (clear edition mappings), or cron (continuous sync)",
+        choices=["sync", "test", "config", "clear-cache", "cron"],
+        help="Command to execute: sync (one-time), test (connections), config (show configuration), clear-cache (clear all cache), or cron (continuous sync)",
     )
 
     parser.add_argument(
@@ -675,7 +675,7 @@ def main() -> None:
 
         elif args.command == "clear-cache":
             confirm = (
-                input("🗑️  Are you sure you want to clear the book cache? (y/N): ")
+                input("🗑️  Are you sure you want to clear the ENTIRE book cache (progress, editions, authors, etc.)? (y/N): ")
                 .strip()
                 .lower()
             )
@@ -685,27 +685,6 @@ def main() -> None:
                 print("📝 Next sync will be a full resync.")
             else:
                 print("❌ Book cache clear cancelled.")
-            sys.exit(0)
-
-        elif args.command == "clear-editions":
-            confirm = (
-                input(
-                    "🔄 Are you sure you want to clear edition mappings? This will force re-syncing of editions and authors but keep progress data. (y/N): "
-                )
-                .strip()
-                .lower()
-            )
-            if confirm in ["y", "yes"]:
-                with sync_manager.book_cache._get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("UPDATE books SET edition_id = NULL, author = NULL")
-                    affected_rows = cursor.rowcount
-                    conn.commit()
-
-                print(f"✅ Edition mappings cleared for {affected_rows} books!")
-                print("📝 Next sync will re-fetch editions and author data.")
-            else:
-                print("❌ Edition mapping clear cancelled.")
             sys.exit(0)
 
         elif args.command == "cron":

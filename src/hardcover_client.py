@@ -101,7 +101,11 @@ class HardcoverClient:
                             id
                             isbn_10
                             isbn_13
+                            asin
                             pages
+                            audio_seconds
+                            physical_format
+                            reading_format { format }
                         }
                     }
                 }
@@ -179,9 +183,10 @@ class HardcoverClient:
     def update_reading_progress(
         self,
         user_book_id: int,
-        current_page: int,
+        current_progress: int,
         progress_percentage: float,
         edition_id: int,
+        use_seconds: bool = False,
     ) -> bool:
         """
         Update reading progress for a book using user_book_reads system
@@ -196,9 +201,10 @@ class HardcoverClient:
         Returns:
             True if update was successful, False otherwise
         """
+        progress_type = "seconds" if use_seconds else "pages"
         self.logger.debug(
             f"Updating progress for user_book_id {user_book_id}: "
-            f"page {current_page}, {progress_percentage:.1f}%"
+            f"{progress_type} {current_progress}, {progress_percentage:.1f}%"
         )
 
         # First, check if there's existing progress
@@ -214,29 +220,52 @@ class HardcoverClient:
 
             self.logger.debug(f"Found existing progress record {read_id}, updating...")
 
-            update_mutation = """
-            mutation UpdateBookProgress($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
-                update_user_book_read(id: $id, object: {
-                    progress_pages: $pages,
-                    edition_id: $editionId,
-                    started_at: $startedAt
-                }) {
-                    error
-                    user_book_read {
-                        id
-                        progress_pages
-                        edition_id
+            if use_seconds:
+                update_mutation = """
+                mutation UpdateBookProgress($id: Int!, $seconds: Int, $editionId: Int, $startedAt: date) {
+                    update_user_book_read(id: $id, object: {
+                        progress_seconds: $seconds,
+                        edition_id: $editionId,
+                        started_at: $startedAt
+                    }) {
+                        error
+                        user_book_read {
+                            id
+                            progress_seconds
+                            edition_id
+                        }
                     }
                 }
-            }
-            """
-
-            variables = {
-                "id": read_id,
-                "pages": current_page,
-                "editionId": edition_id,
-                "startedAt": current_date,
-            }
+                """
+                variables = {
+                    "id": read_id,
+                    "seconds": current_progress,
+                    "editionId": edition_id,
+                    "startedAt": current_date,
+                }
+            else:
+                update_mutation = """
+                mutation UpdateBookProgress($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
+                    update_user_book_read(id: $id, object: {
+                        progress_pages: $pages,
+                        edition_id: $editionId,
+                        started_at: $startedAt
+                    }) {
+                        error
+                        user_book_read {
+                            id
+                            progress_pages
+                            edition_id
+                        }
+                    }
+                }
+                """
+                variables = {
+                    "id": read_id,
+                    "pages": current_progress,
+                    "editionId": edition_id,
+                    "startedAt": current_date,
+                }
 
             try:
                 result = self._execute_query(update_mutation, variables)
@@ -250,8 +279,9 @@ class HardcoverClient:
                 ):
                     updated_record = result["update_user_book_read"]["user_book_read"]
                     if updated_record and updated_record.get("id"):
+                        progress_type = "seconds" if use_seconds else "pages"
                         self.logger.info(
-                            f"Successfully updated reading progress: record {read_id} to page {current_page}"
+                            f"Successfully updated reading progress: record {read_id} to {progress_type} {current_progress}"
                         )
                         return True
 
@@ -282,31 +312,56 @@ class HardcoverClient:
             f"Creating new progress record for user_book_id {user_book_id}..."
         )
 
-        insert_mutation = """
-        mutation InsertUserBookRead($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
-            insert_user_book_read(user_book_id: $id, user_book_read: {
-                progress_pages: $pages,
-                edition_id: $editionId,
-                started_at: $startedAt
-            }) {
-                error
-                user_book_read {
-                    id
-                    started_at
-                    finished_at
-                    edition_id
-                    progress_pages
+        if use_seconds:
+            insert_mutation = """
+            mutation InsertUserBookRead($id: Int!, $seconds: Int, $editionId: Int, $startedAt: date) {
+                insert_user_book_read(user_book_id: $id, user_book_read: {
+                    progress_seconds: $seconds,
+                    edition_id: $editionId,
+                    started_at: $startedAt
+                }) {
+                    error
+                    user_book_read {
+                        id
+                        started_at
+                        finished_at
+                        edition_id
+                        progress_seconds
+                    }
                 }
             }
-        }
-        """
-
-        variables = {
-            "id": user_book_id,
-            "pages": current_page,
-            "editionId": edition_id,
-            "startedAt": current_date,
-        }
+            """
+            variables = {
+                "id": user_book_id,
+                "seconds": current_progress,
+                "editionId": edition_id,
+                "startedAt": current_date,
+            }
+        else:
+            insert_mutation = """
+            mutation InsertUserBookRead($id: Int!, $pages: Int, $editionId: Int, $startedAt: date) {
+                insert_user_book_read(user_book_id: $id, user_book_read: {
+                    progress_pages: $pages,
+                    edition_id: $editionId,
+                    started_at: $startedAt
+                }) {
+                    error
+                    user_book_read {
+                        id
+                        started_at
+                        finished_at
+                        edition_id
+                        progress_pages
+                    }
+                }
+            }
+            """
+            variables = {
+                "id": user_book_id,
+                "pages": current_progress,
+                "editionId": edition_id,
+                "startedAt": current_date,
+            }
 
         try:
             result = self._execute_query(insert_mutation, variables)
@@ -516,7 +571,11 @@ class HardcoverClient:
                 id
                 isbn_10
                 isbn_13
+                asin
                 pages
+                audio_seconds
+                physical_format
+                reading_format { format }
                 book_id
                 book {
                     id
@@ -553,31 +612,85 @@ class HardcoverClient:
             self.logger.error(f"Error searching for ISBN {isbn}: {str(e)}")
             return []
 
-    def add_book_to_library(self, book_id: int, status_id: int = 2) -> Optional[Dict[str, Any]]:
+    def search_books_by_asin(self, asin: str) -> List[Dict]:
+        """
+        Search for books in Hardcover database by ASIN using editions
+        """
+        self.logger.info(f"Searching for books with ASIN: {asin}")
+
+        query = """
+        query searchBooksByASIN($asin: String) {
+            editions(where: {asin: {_eq: $asin}}, limit: 10) {
+                id
+                isbn_10
+                isbn_13
+                asin
+                pages
+                audio_seconds
+                physical_format
+                reading_format { format }
+                book_id
+                book {
+                    id
+                    title
+                    cached_contributors
+                }
+            }
+        }
+        """
+
+        variables = {"asin": asin}
+
+        try:
+            result = self._execute_query(query, variables)
+            if result and "editions" in result:
+                books = []
+                seen_book_ids = set()
+
+                for edition in result["editions"]:
+                    book_data = edition.get("book")
+                    if book_data and book_data["id"] not in seen_book_ids:
+                        book_data["editions"] = [edition]  # Include edition info
+                        books.append(book_data)
+                        seen_book_ids.add(book_data["id"])
+
+                self.logger.info(f"Found {len(books)} books for ASIN {asin}")
+                return books
+
+            self.logger.info(f"No books found for ASIN {asin}")
+            return []
+
+        except Exception as e:
+            self.logger.error(f"Error searching for ASIN {asin}: {str(e)}")
+            return []
+
+    def add_book_to_library(self, book_id: int, status_id: int = 2, edition_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         Add a book to user's library
 
         Args:
             book_id: ID of the book to add
             status_id: Status (1=Want to Read, 2=Currently Reading, 3=Read, 4=Did Not Finish)
+            edition_id: ID of the specific edition (optional)
 
         Returns:
             The created user_book record or None if failed
         """
-        self.logger.info(f"Adding book {book_id} to library with status {status_id}")
+        self.logger.info(f"Adding book {book_id} to library with status {status_id}" + (f" and edition {edition_id}" if edition_id else ""))
 
         mutation = """
-        mutation addBookToLibrary($book_id: Int!, $status_id: Int!) {
+        mutation addBookToLibrary($book_id: Int!, $status_id: Int!, $edition_id: Int) {
             insert_user_book(object: {
                 book_id: $book_id,
-                status_id: $status_id
+                status_id: $status_id,
+                edition_id: $edition_id
             }) {
                 id
             }
         }
         """
 
-        variables = {"book_id": book_id, "status_id": status_id}
+        variables = {"book_id": book_id, "status_id": status_id, "edition_id": edition_id}
 
         try:
             result = self._execute_query(mutation, variables)
