@@ -4,11 +4,11 @@ version = "1.0.0"
 description = "A Python CLI tool that synchronizes audiobook listening progress from Audiobookshelf to reading progress in Hardcover"
 requires-python = ">=3.11"
 dependencies = [
-    "python-dotenv>=1.1.1",
-    "requests>=2.32.4",
-    "tqdm>=4.66.0",
-    "croniter>=2.0.0",
-    "pytz>=2023.3",
+    "python-dotenv==1.1.1",
+    "requests==2.32.4",
+    "tqdm==4.66.0",
+    "croniter==2.0.0",
+    "pytz==2023.3",
 ]
 
 [tool.setuptools]

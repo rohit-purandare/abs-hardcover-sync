@@ -21,7 +21,6 @@ nosetests.xml
 coverage.xml
 *.cover
 *.log
-.git
 .mypy_cache
 .pytest_cache
 .hypothesis
@@ -42,9 +41,13 @@ ENV/
 Thumbs.db
 
 # Project specific
-*.log
-.progress_cache.json
-.edition_cache.json
+abs_hardcover_sync.log
+*.db
+debug/
+data/
+build/
+dist/
+tests/
 secrets.env
 .env
 

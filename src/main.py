@@ -8,6 +8,7 @@ using ISBN matching and progress percentage to current_page conversion.
 
 import argparse
 import logging
+import logging.handlers
 import os
 import sys
 import time
@@ -38,8 +39,10 @@ def setup_logging(verbose: bool = False) -> None:
     detailed_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     clean_format = "%(asctime)s - %(levelname)s - %(message)s"
 
-    # File handler (always detailed for debugging)
-    file_handler = logging.FileHandler("abs_hardcover_sync.log")
+    # File handler (rotating for log management)
+    file_handler = logging.handlers.RotatingFileHandler(
+        "abs_hardcover_sync.log", maxBytes=5 * 1024 * 1024, backupCount=5
+    )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(logging.Formatter(detailed_format))
 
@@ -394,8 +397,8 @@ def run_cache_interactive() -> None:
             config, dry_run=True
         )  # Use dry_run to avoid actual sync
 
-        # Migrate from old JSON caches if they exist
-        sync_manager.migrate_from_old_caches()
+        # Remove old cache migration call
+        # sync_manager.migrate_from_old_caches()
 
         while True:
             print("\nCache Management Options:")

@@ -11,8 +11,7 @@ services:
     volumes:
       # Mount config files for persistence
       - ./config/secrets.env:/app/config/secrets.env:ro
-      - ./.progress_cache.json:/app/.progress_cache.json
-      - ./.edition_cache.json:/app/.edition_cache.json
+      # Removed old cache file mounts
     # Interactive mode for CLI
     stdin_open: true
     tty: true

@@ -324,113 +324,6 @@ class BookCache:
                 "cache_file_size": 0,
             }
 
-    def migrate_from_old_caches(self) -> None:
-        """Migrate data from old JSON cache files"""
-        # Migrate edition cache
-        edition_cache_file = ".edition_cache.json"
-        if os.path.exists(edition_cache_file):
-            try:
-                with open(edition_cache_file, "r") as f:
-                    old_edition_data = json.load(f)
-
-                migrated_count = 0
-                with self._get_connection() as conn:
-                    cursor = conn.cursor()
-                    current_time = datetime.now().isoformat()
-
-                    for key, edition_data in old_edition_data.items():
-                        # Parse key format: "isbn_title"
-                        if "_" in key:
-                            isbn = key.split("_", 1)[0]
-                            title = key.split("_", 1)[1]
-
-                            # Handle both old formats: direct edition_id or nested object
-                            if isinstance(edition_data, dict):
-                                edition_id = edition_data.get("edition_id")
-                                # Use title from data if available, otherwise from key
-                                title = edition_data.get("title", title)
-                                isbn = edition_data.get("isbn", isbn)
-                            else:
-                                edition_id = edition_data
-
-                            if edition_id:
-                                cursor.execute(
-                                    """
-                                    INSERT OR REPLACE INTO books 
-                                    (isbn, title, edition_id, created_at, updated_at) 
-                                    VALUES (?, ?, ?, ?, ?)
-                                """,
-                                    (
-                                        isbn,
-                                        title,
-                                        edition_id,
-                                        current_time,
-                                        current_time,
-                                    ),
-                                )
-                                migrated_count += 1
-
-                    conn.commit()
-
-                self.logger.info(
-                    f"Migrated {migrated_count} edition mappings from old cache"
-                )
-
-                # Remove old cache file
-                os.remove(edition_cache_file)
-                self.logger.info("Removed old edition cache file")
-
-            except Exception as e:
-                self.logger.warning(f"Failed to migrate edition cache: {str(e)}")
-
-        # Migrate progress cache
-        progress_cache_file = ".progress_cache.json"
-        if os.path.exists(progress_cache_file):
-            try:
-                with open(progress_cache_file, "r") as f:
-                    old_progress_data = json.load(f)
-
-                migrated_count = 0
-                with self._get_connection() as conn:
-                    cursor = conn.cursor()
-                    current_time = datetime.now().isoformat()
-
-                    for key, progress_info in old_progress_data.items():
-                        # Parse key format: "isbn_title"
-                        if "_" in key:
-                            isbn = key.split("_", 1)[0]
-                            title = key.split("_", 1)[1]
-
-                            cursor.execute(
-                                """
-                                INSERT OR REPLACE INTO books 
-                                (isbn, title, progress_percent, last_synced, created_at, updated_at) 
-                                VALUES (?, ?, ?, ?, ?, ?)
-                            """,
-                                (
-                                    isbn,
-                                    title,
-                                    progress_info.get("progress_percent"),
-                                    progress_info.get("last_synced"),
-                                    current_time,
-                                    current_time,
-                                ),
-                            )
-                            migrated_count += 1
-
-                    conn.commit()
-
-                self.logger.info(
-                    f"Migrated {migrated_count} progress records from old cache"
-                )
-
-                # Remove old cache file
-                os.remove(progress_cache_file)
-                self.logger.info("Removed old progress cache file")
-
-            except Exception as e:
-                self.logger.warning(f"Failed to migrate progress cache: {str(e)}")
-
     def export_to_json(self, filename: str = "book_cache_export.json") -> None:
         """Export cache data to JSON for backup/debugging"""
         try:
@@ -523,7 +416,8 @@ class SyncManager:
 
         # Initialize book cache and migrate from old caches
         self.book_cache = BookCache()
-        self.book_cache.migrate_from_old_caches()
+        # Remove old cache migration call
+        # self.book_cache.migrate_from_old_caches()
 
         # Get sync configuration
         self.sync_config = config.get_sync_config()
@@ -1353,7 +1247,18 @@ class SyncManager:
                     "title": title,
                     "reason": f"Already completed, no progress change ({progress_percent:.1f}%)",
                 }
-            # Otherwise, update progress
+            # Only update if progress has changed
+            if isbn and not self.book_cache.has_progress_changed(
+                isbn, title, progress_percent
+            ):
+                self.logger.info(
+                    f"✅ {title} already completed, progress unchanged, skipping update"
+                )
+                return {
+                    "status": "skipped",
+                    "title": title,
+                    "reason": f"Already completed, no progress change ({progress_percent:.1f}%)",
+                }
             self.logger.info(f"✅ {title} already completed, updating progress only")
             return self._sync_progress_to_hardcover(
                 {"id": user_book_id}, edition, progress_percent, title, isbn
@@ -1419,10 +1324,6 @@ class SyncManager:
     def clear_cache(self) -> None:
         """Clear the book cache"""
         self.book_cache.clear_cache()
-
-    def migrate_from_old_caches(self) -> None:
-        """Migrate data from old JSON cache files to SQLite"""
-        self.book_cache.migrate_from_old_caches()
 
     def export_to_json(self, filename: str = "book_cache_export.json") -> None:
         """Export cache data to JSON for backup/debugging"""
