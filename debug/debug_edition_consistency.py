@@ -4,7 +4,6 @@ Debug script to examine edition consistency between existing progress records
 and the editions we're choosing during sync
 """
 
-import os
 
 from dotenv import load_dotenv
 
@@ -75,7 +74,7 @@ def main() -> None:
 
             # Check for conflicts
             if existing_edition_id and existing_edition_id != isbn_edition.get("id"):
-                print(f"  ⚠️ EDITION MISMATCH!")
+                print("  ⚠️ EDITION MISMATCH!")
                 print(f"    Existing progress is for edition {existing_edition_id}")
                 print(f"    But we would sync to edition {isbn_edition.get('id')}")
 
@@ -103,9 +102,9 @@ def main() -> None:
                         f"    ❌ Could not find existing edition {existing_edition_id} in book's editions!"
                     )
             else:
-                print(f"  ✅ Edition IDs match")
+                print("  ✅ Edition IDs match")
         else:
-            print(f"  No existing progress records")
+            print("  No existing progress records")
 
 
 if __name__ == "__main__":

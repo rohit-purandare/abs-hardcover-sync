@@ -13,7 +13,6 @@ import os
 import sys
 import time
 from datetime import datetime
-from typing import Optional
 
 import pytz
 from croniter import croniter
@@ -309,7 +308,7 @@ def run_interactive_mode() -> None:
 
 def run_sync_interactive(dry_run: bool = False, verbose: bool = False) -> None:
     """Run sync in interactive mode"""
-    print(f"\n🔄 Starting sync...")
+    print("\n🔄 Starting sync...")
     if dry_run:
         print("🧪 DRY RUN MODE - No changes will be made")
     if verbose:
@@ -416,14 +415,14 @@ def run_cache_interactive() -> None:
                 # Show cache statistics
                 cache_stats = sync_manager.get_cache_stats()
 
-                print(f"\n📊 Book Cache Statistics:")
+                print("\n📊 Book Cache Statistics:")
                 print(f"   Total books: {cache_stats['total_books']}")
                 print(f"   Books with editions: {cache_stats['books_with_editions']}")
                 print(f"   Books with progress: {cache_stats['books_with_progress']}")
                 print(f"   Cache file size: {cache_stats['cache_file_size']} bytes")
 
                 if cache_stats["total_books"] > 0:
-                    print(f"   📁 Cache file: data/.book_cache.db (SQLite)")
+                    print("   📁 Cache file: data/.book_cache.db (SQLite)")
                 else:
                     print("   📁 No book cache file exists yet")
 

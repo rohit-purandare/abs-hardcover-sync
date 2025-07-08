@@ -4,8 +4,7 @@ Cleanup script to consolidate duplicate progress records and maintain only one a
 This addresses the issue where multiple progress records were created instead of updating existing ones.
 """
 
-import os
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from dotenv import load_dotenv
 
@@ -180,7 +179,7 @@ def main() -> None:
     total_duplicate_records = sum(
         book["total_records"] - 1 for book in books_with_duplicates
     )
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  Books with duplicates: {len(books_with_duplicates)}")
     print(f"  Total duplicate records to clean: {total_duplicate_records}")
     print()
@@ -212,7 +211,7 @@ def main() -> None:
         elif result["status"] == "dry_run":
             summary["total_deleted"] += result["would_delete"]
 
-    print(f"\n=== CLEANUP SUMMARY ===")
+    print("\n=== CLEANUP SUMMARY ===")
     print(f"Books processed: {summary['processed']}")
     print(f"Records deleted: {summary['total_deleted']}")
     print(f"Errors: {summary['errors']}")

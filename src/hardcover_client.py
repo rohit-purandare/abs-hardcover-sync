@@ -204,7 +204,6 @@ class HardcoverClient:
         # First, check if there's existing progress
         existing_progress = self.get_book_current_progress(user_book_id)
 
-        from datetime import datetime
 
         current_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -365,7 +364,6 @@ class HardcoverClient:
         self.logger.debug(f"Marking book as completed: user_book_id {user_book_id}")
 
         # Get current date for completion
-        from datetime import datetime
 
         current_date = datetime.now().strftime("%Y-%m-%d")
 

@@ -76,7 +76,7 @@ def test_graphql_aliases() -> bool:
 
     try:
         result = client._execute_query(batch_mutation, variables)
-        print(f"✅ GraphQL aliases for status updates WORK!")
+        print("✅ GraphQL aliases for status updates WORK!")
         print(f"📊 Result: {result}")
 
         # Verify the updates worked
@@ -87,9 +87,9 @@ def test_graphql_aliases() -> bool:
             and result["book1"].get("status_id") == test_status1
             and result["book2"].get("status_id") == test_status2
         ):
-            print(f"✅ Status updates confirmed successful!")
+            print("✅ Status updates confirmed successful!")
         else:
-            print(f"⚠️  Status updates may not have worked as expected")
+            print("⚠️  Status updates may not have worked as expected")
 
         # Restore original statuses
         restore_mutation = """
@@ -114,7 +114,7 @@ def test_graphql_aliases() -> bool:
         }
 
         client._execute_query(restore_mutation, restore_variables)
-        print(f"🔄 Restored original statuses")
+        print("🔄 Restored original statuses")
 
         return True
     except Exception as e:
@@ -179,7 +179,7 @@ def main() -> None:
     # Test parallel execution
     parallel_works = test_parallel_mutations()
 
-    print(f"\n📊 SUMMARY:")
+    print("\n📊 SUMMARY:")
     print(
         f"   GraphQL aliases: {'✅ Supported' if aliases_supported else '❌ Not supported'}"
     )
@@ -187,7 +187,7 @@ def main() -> None:
 
     if not aliases_supported and parallel_works:
         print(
-            f"\n💡 RECOMMENDATION: Use parallel individual mutations for optimization"
+            "\n💡 RECOMMENDATION: Use parallel individual mutations for optimization"
         )
 
 

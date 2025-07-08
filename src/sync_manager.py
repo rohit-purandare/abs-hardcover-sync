@@ -5,7 +5,6 @@ Sync Manager - Coordinates synchronization between Audiobookshelf and Hardcover
 import concurrent.futures
 import json
 import logging
-import math
 import os
 import sqlite3
 import sys
@@ -17,7 +16,7 @@ from tqdm import tqdm
 
 from src.audiobookshelf_client import AudiobookshelfClient
 from src.hardcover_client import HardcoverClient
-from src.utils import calculate_progress_percentage, normalize_isbn
+from src.utils import normalize_isbn
 
 if __name__ == "__main__":
     sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -134,7 +133,7 @@ class BookCache:
                     self.logger.debug(
                         f"Cache hit for {title}: edition {result['edition_id']}"
                     )
-                    return int(result["edition_id"])  # type: ignore[no-any-return]
+                    return int(result["edition_id"])
                 return None
 
         except Exception as e:
@@ -1187,7 +1186,7 @@ class SyncManager:
                     self.logger.debug(
                         f"Using cached edition {cached_edition_id} for {title}"
                     )
-                    return edition  # type: ignore[no-any-return]
+                    return edition
             self.logger.debug(
                 f"Cached edition {cached_edition_id} not found in available editions for {title}"
             )
@@ -1204,7 +1203,7 @@ class SyncManager:
                         self.logger.debug(
                             f"Using existing progress edition {existing_edition_id} for {title}"
                         )
-                        return edition  # type: ignore[no-any-return]
+                        return edition
                 self.logger.debug(
                     f"Existing progress edition {existing_edition_id} not found, falling back for {title}"
                 )
@@ -1217,7 +1216,7 @@ class SyncManager:
                     self.logger.debug(
                         f"Using linked edition {user_book_edition_id} for {title}"
                     )
-                    return edition  # type: ignore[no-any-return]
+                    return edition
             self.logger.debug(
                 f"Linked edition {user_book_edition_id} not found, falling back for {title}"
             )
@@ -1226,7 +1225,7 @@ class SyncManager:
         self.logger.debug(
             f"Using ISBN-matched edition {isbn_edition.get('id')} for {title}"
         )
-        return isbn_edition  # type: ignore[no-any-return]
+        return isbn_edition
 
     def _handle_completion_status(
         self,
@@ -1506,7 +1505,7 @@ class SyncManager:
                 if author_data and author_data.get("name"):
                     author_name = author_data["name"]
                     self.logger.debug(f"Extracted author from Hardcover: {author_name}")
-                    return str(author_name)  # type: ignore[no-any-return]
+                    return str(author_name)
         except Exception as e:
             self.logger.debug(f"Could not extract author from Hardcover data: {str(e)}")
 
@@ -1522,7 +1521,7 @@ class SyncManager:
                     self.logger.debug(
                         f"Extracted author from Audiobookshelf (fallback): {author}"
                     )
-                    return str(author)  # type: ignore[no-any-return]
+                    return str(author)
         except Exception as e:
             self.logger.debug(
                 f"Could not extract author from Audiobookshelf data: {str(e)}"

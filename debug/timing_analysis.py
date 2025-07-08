@@ -125,7 +125,7 @@ def analyze_sync_timing() -> None:
     # Run the sync
     result = sync_manager.sync_progress()
 
-    print(f"\n✅ Timing analysis completed!")
+    print("\n✅ Timing analysis completed!")
     print(f"📊 Books processed: {result['books_processed']}")
     print(f"📊 Books synced: {result['books_synced']}")
     print(f"📊 Books completed: {result['books_completed']}")

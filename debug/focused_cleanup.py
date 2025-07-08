@@ -3,7 +3,6 @@
 Focused cleanup script to handle the specific duplicate progress issue we identified
 """
 
-import os
 
 from dotenv import load_dotenv
 
@@ -146,7 +145,7 @@ def main() -> None:
         if cleanup_book_progress(hardcover, user_book_id, book_title, dry_run):
             success_count += 1
 
-    print(f"\n=== CLEANUP SUMMARY ===")
+    print("\n=== CLEANUP SUMMARY ===")
     print(f"Books processed: {success_count}/{len(problematic_books)}")
 
     if dry_run:

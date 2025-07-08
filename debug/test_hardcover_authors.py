@@ -62,7 +62,7 @@ def main() -> None:
                 logger.warning(f"✗ {title}: No contributions found")
                 books_without_authors += 1
 
-        logger.info(f"\nSummary:")
+        logger.info("\nSummary:")
         logger.info(f"Books with authors: {books_with_authors}")
         logger.info(f"Books without authors: {books_without_authors}")
 

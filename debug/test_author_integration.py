@@ -34,7 +34,7 @@ def main() -> None:
         result = sync_manager.sync_progress()
 
         if result["success"]:
-            logger.info(f"Sync completed successfully!")
+            logger.info("Sync completed successfully!")
             logger.info(f"Books processed: {result['books_processed']}")
             logger.info(f"Books synced: {result['books_synced']}")
             logger.info(f"Books auto-added: {result['books_auto_added']}")

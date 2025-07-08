@@ -47,7 +47,7 @@ def test_parallel_status_updates() -> None:
         new_status = 2 if current_status != 2 else 1
         status_updates.append({"user_book_id": book["id"], "status_id": new_status})
 
-    print(f"\n🔄 Testing parallel status updates...")
+    print("\n🔄 Testing parallel status updates...")
     print(f"   Updates: {len(status_updates)}")
     print(f"   Parallel workers: {MAX_PARALLEL_WORKERS}")
     print(f"   Rate limit: {RATE_LIMIT_PER_MINUTE} requests/minute")
@@ -56,19 +56,19 @@ def test_parallel_status_updates() -> None:
     results = client.batch_update_status(status_updates)
     end_time = time.time()
 
-    print(f"\n📊 Results:")
+    print("\n📊 Results:")
     print(f"   Time: {end_time - start_time:.3f}s")
     print(f"   Success: {results['success']}")
     print(f"   Failed: {results['failed']}")
     print(f"   Errors: {len(results['errors'])}")
 
     if results["errors"]:
-        print(f"   Error details:")
+        print("   Error details:")
         for error in results["errors"]:
             print(f"     - {error}")
 
     # Restore original statuses
-    print(f"\n🔄 Restoring original statuses...")
+    print("\n🔄 Restoring original statuses...")
     restore_updates = []
     for book in test_books:
         restore_updates.append(
@@ -118,7 +118,7 @@ def test_sequential_vs_parallel() -> None:
     parallel_results = client.batch_update_status(status_updates)
     parallel_time = time.time() - start_time
 
-    print(f"\n📊 Performance Comparison:")
+    print("\n📊 Performance Comparison:")
     print(
         f"   Sequential: {sequential_time:.3f}s ({sequential_success}/{len(test_books)} success)"
     )

@@ -4,8 +4,6 @@ Parallel API Optimization Proof-of-Concept
 Demonstrates how parallel requests could speed up Audiobookshelf API calls
 """
 
-import logging
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List
@@ -105,8 +103,8 @@ def compare_approaches() -> None:
     print(f"⏱️  Time saved: {sequential_time - parallel_time:.3f}s")
 
     # Real-world estimate
-    print(f"\n🌍 Real-world estimate for your 11 books:")
-    print(f"   Current time: ~2.2s")
+    print("\n🌍 Real-world estimate for your 11 books:")
+    print("   Current time: ~2.2s")
     estimated_time: float = 2.2 * (parallel_time / sequential_time)
     print(f"   Optimized time: ~{estimated_time:.1f}s")
     time_saved: float = 2.2 - estimated_time

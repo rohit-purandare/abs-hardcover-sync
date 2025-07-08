@@ -4,7 +4,6 @@ Debug script to examine if any books have multiple progress records
 across different editions
 """
 
-import os
 
 from dotenv import load_dotenv
 
@@ -86,13 +85,13 @@ def main() -> None:
             print(f"Error checking {book_title}: {str(e)}")
             continue
 
-    print(f"\n=== SUMMARY ===")
+    print("\n=== SUMMARY ===")
     print(
         f"Found {len(books_with_multiple_progress)} books with multiple edition progress"
     )
 
     if books_with_multiple_progress:
-        print(f"\nBooks with multiple edition progress:")
+        print("\nBooks with multiple edition progress:")
         for book in books_with_multiple_progress:
             print(
                 f"  - {book['title']}: {len(book['reads'])} records across editions {book['edition_ids']}"

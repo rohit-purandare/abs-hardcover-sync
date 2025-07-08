@@ -5,7 +5,6 @@ Check what authors are stored in the cache
 
 import logging
 import os
-import sqlite3
 import sys
 from typing import Any, Dict, List
 
