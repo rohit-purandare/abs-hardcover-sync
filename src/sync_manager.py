@@ -135,14 +135,7 @@ class BookCache:
     ) -> None:
         """
         Store edition mapping in cache
-
-        Args:
-            user_id: The user ID for which to store the cache.
-            identifier: Normalized identifier (ISBN or ASIN)
-            title: Book title
-            edition_id: Edition ID to cache
-            identifier_type: Type of identifier ('isbn' or 'asin')
-            author: Author name (optional)
+        Only updates edition_id, author, and updated_at if the row exists, does not overwrite progress_percent.
         """
         try:
             with self._get_connection() as conn:
@@ -150,14 +143,31 @@ class BookCache:
                 normalized_title = title.lower().strip()
                 current_time = datetime.now().isoformat()
 
+                # Check if the row exists
                 cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO books 
-                    (user_id, identifier, identifier_type, title, author, edition_id, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (user_id, identifier, identifier_type, normalized_title, author, edition_id, current_time),
+                    "SELECT 1 FROM books WHERE user_id = ? AND identifier = ? AND identifier_type = ? AND title = ?",
+                    (user_id, identifier, identifier_type, normalized_title),
                 )
+                exists = cursor.fetchone()
+
+                if exists:
+                    # Only update edition_id, author, updated_at
+                    cursor.execute(
+                        """
+                        UPDATE books SET edition_id = ?, author = ?, updated_at = ?
+                        WHERE user_id = ? AND identifier = ? AND identifier_type = ? AND title = ?
+                        """,
+                        (edition_id, author, current_time, user_id, identifier, identifier_type, normalized_title),
+                    )
+                else:
+                    # Insert a new row, progress_percent will be default (0.0)
+                    cursor.execute(
+                        """
+                        INSERT INTO books (user_id, identifier, identifier_type, title, author, edition_id, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (user_id, identifier, identifier_type, normalized_title, author, edition_id, current_time),
+                    )
 
                 conn.commit()
                 self.logger.debug(
@@ -171,22 +181,12 @@ class BookCache:
     def get_last_progress(self, user_id: int, identifier: str, title: str, identifier_type: str = "isbn") -> Optional[float]:
         """
         Get last synced progress for a book
-
-        Args:
-            user_id: The user ID for which to fetch the cache.
-            identifier: Normalized identifier (ISBN or ASIN)
-            title: Book title
-            identifier_type: Type of identifier ('isbn' or 'asin')
-
-        Returns:
-            Last synced progress percentage if found, None otherwise
         """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 normalized_title = title.lower().strip()
-                self.logger.debug(f"Looking up progress for {identifier_type.upper()}: {identifier}, title: '{normalized_title}'")
-                
+                self.logger.info(f"[CACHE READ] user_id={user_id}, identifier={identifier}, identifier_type={identifier_type}, normalized_title='{normalized_title}'")
                 cursor.execute(
                     "SELECT progress_percent FROM books WHERE user_id = ? AND identifier = ? AND identifier_type = ? AND title = ?",
                     (user_id, identifier, identifier_type, normalized_title),
@@ -210,19 +210,15 @@ class BookCache:
     def store_progress(self, user_id: int, identifier: str, title: str, progress_percent: float, identifier_type: str = "isbn") -> None:
         """
         Store progress for a book
-
-        Args:
-            user_id: The user ID for which to store the cache.
-            identifier: Normalized identifier (ISBN or ASIN)
-            title: Book title
-            progress_percent: Progress percentage to cache
-            identifier_type: Type of identifier ('isbn' or 'asin')
         """
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 normalized_title = title.lower().strip()
                 current_time = datetime.now().isoformat()
+                self.logger.info(f"[CACHE WRITE] user_id={user_id}, identifier={identifier}, identifier_type={identifier_type}, normalized_title='{normalized_title}', progress_percent={progress_percent}")
+                import traceback
+                caller = traceback.extract_stack()[-2]
 
                 cursor.execute(
                     """
@@ -268,7 +264,7 @@ class BookCache:
         last_progress = self.get_last_progress(user_id, identifier, title, identifier_type)
         
         if last_progress is None:
-            self.logger.debug(f"No previous progress found for {title}, considering as changed")
+            self.logger.info(f"🔍 No previous progress found for {title} ({identifier_type}: {identifier}), considering as changed")
             return True
 
         # Check if progress has changed significantly (more than 0.1%)
@@ -276,12 +272,12 @@ class BookCache:
         has_changed = progress_diff > 0.1
 
         if has_changed:
-            self.logger.debug(
-                f"Progress changed for {title}: {last_progress:.1f}% -> {current_progress:.1f}% (diff: {progress_diff:.1f}%)"
+            self.logger.info(
+                f"🔍 Progress changed for {title}: {last_progress:.3f}% -> {current_progress:.3f}% (diff: {progress_diff:.3f}%)"
             )
         else:
-            self.logger.debug(
-                f"No progress change for {title}: {current_progress:.1f}% (same as last sync)"
+            self.logger.info(
+                f"🔍 No progress change for {title}: {current_progress:.3f}% (same as last sync: {last_progress:.3f}%)"
             )
 
         return has_changed
@@ -1008,6 +1004,8 @@ class SyncManager:
         """Sync progress for an existing book"""
         title = abs_book.get("media", {}).get("metadata", {}).get("title", "Unknown")
         progress_percent = abs_book.get("progress_percentage", 0)
+        
+
 
         user_book = hardcover_match["book"]
         isbn_edition = hardcover_match["edition"]
@@ -1016,44 +1014,34 @@ class SyncManager:
         # Extract identifiers for cache lookup
         identifiers = self._extract_book_identifier(abs_book)
 
-        # Check cache first for edition preference
+        # Check cache first for edition preference (ASIN first, then ISBN)
         cached_edition_id = None
-        if identifiers:
-            # Try ASIN first, then ISBN
-            asin = identifiers.get("asin")
-            if asin:
-                cached_edition_id = self.book_cache.get_edition_for_book(self.user_id, asin, title, "asin")
-            if not cached_edition_id:
-                isbn = identifiers.get("isbn")
-                if isbn:
-                    cached_edition_id = self.book_cache.get_edition_for_book(self.user_id, isbn, title, "isbn")
+        asin = identifiers.get("asin") if identifiers else None
+        isbn = identifiers.get("isbn") if identifiers else None
+        if asin:
+            cached_edition_id = self.book_cache.get_edition_for_book(self.user_id, asin, title, "asin")
+        if not cached_edition_id and isbn:
+            cached_edition_id = self.book_cache.get_edition_for_book(self.user_id, isbn, title, "isbn")
 
         # Select edition using enhanced logic with cache
         edition = self._select_edition_with_cache(
             abs_book, hardcover_match, cached_edition_id, title
         )
 
-        # Store the selected edition in cache for future use
+        # Store the selected edition in cache for future use (ASIN and ISBN if both exist)
         author = self._extract_author_from_data(abs_book, hardcover_match)
         if identifiers:
-            asin = identifiers.get("asin")
             if asin:
                 self.book_cache.store_edition_mapping(self.user_id, asin, title, edition["id"], "asin", author)
-            else:
-                isbn = identifiers.get("isbn")
-                if isbn:
-                    self.book_cache.store_edition_mapping(self.user_id, isbn, title, edition["id"], "isbn", author)
-
-        # Check if we have cached progress and can skip API calls
-        cached_progress = None
-        if identifiers:
-            isbn = identifiers.get("isbn")
             if isbn:
-                cached_progress = self.book_cache.get_last_progress(self.user_id, isbn, title, "isbn")
-            else:
-                asin = identifiers.get("asin")
-                if asin:
-                    cached_progress = self.book_cache.get_last_progress(self.user_id, asin, title, "asin")
+                self.book_cache.store_edition_mapping(self.user_id, isbn, title, edition["id"], "isbn", author)
+
+        # Check if we have cached progress and can skip API calls (ASIN first, then ISBN)
+        cached_progress = None
+        if asin:
+            cached_progress = self.book_cache.get_last_progress(self.user_id, asin, title, "asin")
+        if cached_progress is None and isbn:
+            cached_progress = self.book_cache.get_last_progress(self.user_id, isbn, title, "isbn")
 
         # If we have cached progress and it matches current progress, skip expensive API calls
         if cached_progress is not None and abs(cached_progress - progress_percent) < 0.1:
@@ -1061,15 +1049,13 @@ class SyncManager:
                 f"⏭ Skipping {title}: progress unchanged ({progress_percent:.1f}% cached: {cached_progress:.1f}%)"
             )
 
-            # Store the current progress in cache (in case it's slightly different)
+            # Store the current progress in cache for all identifiers (ASIN and ISBN)
+
             if identifiers:
-                isbn = identifiers.get("isbn")
+                if asin:
+                    self.book_cache.store_progress(self.user_id, asin, title, progress_percent, "asin")
                 if isbn:
                     self.book_cache.store_progress(self.user_id, isbn, title, progress_percent, "isbn")
-                else:
-                    asin = identifiers.get("asin")
-                    if asin:
-                        self.book_cache.store_progress(self.user_id, asin, title, progress_percent, "asin")
 
             return {
                 "status": "skipped",
@@ -1093,14 +1079,23 @@ class SyncManager:
 
         # Check if book is already completed (95%+ progress)
         if progress_percent >= 95:
-            return self._handle_completion_status(
+            result = self._handle_completion_status(
+                user_book_id, edition, title, progress_percent, abs_book
+            )
+        else:
+            # Check if book was previously completed but now below 95%
+            result = self._handle_progress_status(
                 user_book_id, edition, title, progress_percent, abs_book
             )
 
-        # Check if book was previously completed but now below 95%
-        return self._handle_progress_status(
-            user_book_id, edition, title, progress_percent, abs_book
-        )
+        # After a successful sync, update the cache for all identifiers (ASIN and ISBN)
+        if result.get("status") in ["synced", "completed"] and identifiers:
+            if asin:
+                self.book_cache.store_progress(self.user_id, asin, title, progress_percent, "asin")
+            if isbn:
+                self.book_cache.store_progress(self.user_id, isbn, title, progress_percent, "isbn")
+
+        return result
 
     def _is_audiobook(self, edition: Dict) -> bool:
         """Detect if an edition is an audiobook based on available fields"""
@@ -1140,6 +1135,15 @@ class SyncManager:
         try:
             user_book_id = user_book["id"]
             edition_id = edition["id"]
+            
+            # Debug logging for progress tracking
+    
+            
+            # Extract identifiers using ASIN-first logic for cache operations
+            identifiers = self._extract_book_identifier(abs_book)
+            asin = identifiers.get("asin") if identifiers else None
+            # Use provided isbn parameter, but fall back to extracted one if needed
+            cache_isbn = isbn or identifiers.get("isbn") if identifiers else None
             
             # Detect if this is an audiobook
             is_audiobook = self._is_audiobook(edition)
@@ -1181,9 +1185,13 @@ class SyncManager:
 
             # Skip progress sync for 0% progress to avoid API errors
             if progress_percent == 0.0:
+                self.logger.info(f"[PROGRESS DEBUG] Skipping 0% progress for '{title}' - storing 0.0 in cache")
                 # Store the progress in cache even for 0% (for tracking purposes)
-                if isbn:
-                    self.book_cache.store_progress(self.user_id, isbn, title, progress_percent, "isbn")
+                # Store for both ASIN and ISBN if available
+                if asin:
+                    self.book_cache.store_progress(self.user_id, asin, title, progress_percent, "asin")
+                if cache_isbn:
+                    self.book_cache.store_progress(self.user_id, cache_isbn, title, progress_percent, "isbn")
 
                 return {
                     "status": "skipped",
@@ -1212,8 +1220,12 @@ class SyncManager:
 
                 if success:
                     # Store the synced progress in cache (for both above and below threshold)
-                    if isbn:
-                        self.book_cache.store_progress(self.user_id, isbn, title, progress_percent, "isbn")
+                    # Store for both ASIN and ISBN if available
+    
+                    if asin:
+                        self.book_cache.store_progress(self.user_id, asin, title, progress_percent, "asin")
+                    if cache_isbn:
+                        self.book_cache.store_progress(self.user_id, cache_isbn, title, progress_percent, "isbn")
 
                     return {
                         "status": "synced",
@@ -1240,6 +1252,14 @@ class SyncManager:
                     f"Would sync {title} ({'audiobook' if is_audiobook else 'print/ebook'}): "
                     f"{progress_percent:.1f}% → {sync_details} (edition {edition_id})"
                 )
+                
+                # Store the progress in cache even in dry-run mode
+                # Store for both ASIN and ISBN if available
+                if asin:
+                    self.book_cache.store_progress(self.user_id, asin, title, progress_percent, "asin")
+                if cache_isbn:
+                    self.book_cache.store_progress(self.user_id, cache_isbn, title, progress_percent, "isbn")
+                
                 return {
                     "status": "would_sync",
                     "title": title,
@@ -1462,24 +1482,22 @@ class SyncManager:
 
         # If already marked as completed (status_id=3), only update progress if it has changed
         if current_status_id == 3:
-            isbn = self._extract_isbn_from_abs_book(abs_book)
-            last_progress = (
-                self.book_cache.get_last_progress(self.user_id, isbn, title) if isbn else None
-            )
-            if (
-                last_progress is not None
-                and abs(last_progress - progress_percent) < 0.1
-            ):
-                self.logger.info(
-                    f"✅ {title} already completed, no progress change, skipping update"
-                )
-                return {
-                    "status": "skipped",
-                    "title": title,
-                    "reason": f"Already completed, no progress change ({progress_percent:.1f}%)",
-                }
-            # Only update if progress has changed
-            if isbn and not self.book_cache.has_progress_changed(self.user_id, isbn, title, progress_percent):
+            # Extract identifiers using ASIN-first logic
+            identifiers = self._extract_book_identifier(abs_book)
+            asin = identifiers.get("asin") if identifiers else None
+            isbn = identifiers.get("isbn") if identifiers else None
+            
+            # Debug logging to understand cache behavior
+            self.logger.info(f"🔍 Cache check for {title}: ASIN={asin}, ISBN={isbn}, progress={progress_percent:.1f}%")
+            
+            # Check if progress has changed using the cache (ASIN first, then ISBN)
+            progress_unchanged = False
+            if asin and not self.book_cache.has_progress_changed(self.user_id, asin, title, progress_percent, "asin"):
+                progress_unchanged = True
+            elif isbn and not self.book_cache.has_progress_changed(self.user_id, isbn, title, progress_percent, "isbn"):
+                progress_unchanged = True
+            
+            if progress_unchanged:
                 self.logger.info(
                     f"✅ {title} already completed, progress unchanged, skipping update"
                 )
@@ -1488,6 +1506,8 @@ class SyncManager:
                     "title": title,
                     "reason": f"Already completed, no progress change ({progress_percent:.1f}%)",
                 }
+            
+            # Progress has changed, update it
             self.logger.info(f"✅ {title} already completed, updating progress only")
             return self._sync_progress_to_hardcover(
                 {"id": user_book_id}, edition, progress_percent, title, isbn, abs_book
@@ -1540,8 +1560,9 @@ class SyncManager:
                 )
 
         # Sync regular progress
-        # Extract ISBN for progress tracking
-        isbn = self._extract_isbn_from_abs_book(abs_book)
+        # Extract identifiers using ASIN-first logic
+        identifiers = self._extract_book_identifier(abs_book)
+        isbn = identifiers.get("isbn") if identifiers else None
         return self._sync_progress_to_hardcover(
             {"id": user_book_id}, edition, progress_percent, title, isbn, abs_book
         )
