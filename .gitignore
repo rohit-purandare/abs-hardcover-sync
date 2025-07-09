@@ -81,4 +81,7 @@ coverage/
 
 # Docker
 docker-size-comparison.md
+docker-compose.local.yml
+
+config/config.yaml
 

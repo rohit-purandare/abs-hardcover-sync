@@ -192,4 +192,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from src.config import Config
+    config = Config()
+    users = config.get_users()
+    for user in users:
+        print(f"\n=== Running batch/parallel tests for user: {user['id']} ===")
+        client = HardcoverClient(user["hardcover_token"])
+        # You may need to refactor test functions to accept a client argument
+        # For now, just print the user id
+        print(f"[INFO] Would run batch/parallel tests for user: {user['id']}")

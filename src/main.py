@@ -20,8 +20,7 @@ from croniter import croniter
 from src.config import Config
 from src.sync_manager import SyncManager
 
-if __name__ == "__main__":
-    sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+# === CONFIG LOADER TEST BLOCK ===
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -151,48 +150,45 @@ def test_connections(sync_manager: SyncManager) -> bool:
 
 
 def show_config(config: Config) -> bool:
-    """Show configuration status and help"""
+    """Show configuration status and help (YAML multi-user version)"""
     logger = logging.getLogger(__name__)
 
     logger.info("=== Configuration Status ===")
 
-    # Check secrets configuration
-    secrets_status = []
-    required_secrets = [
-        ("AUDIOBOOKSHELF_URL", config.AUDIOBOOKSHELF_URL),
-        ("AUDIOBOOKSHELF_TOKEN", config.AUDIOBOOKSHELF_TOKEN),
-        ("HARDCOVER_TOKEN", config.HARDCOVER_TOKEN),
-    ]
+    # Show global config
+    global_config = config.get_global()
+    logger.info("Global settings:")
+    for key, value in global_config.items():
+        logger.info(f"  {key}: {value}")
 
-    for name, value in required_secrets:
-        if value and value.strip():
-            secrets_status.append(f"✓ {name}: Configured")
-        else:
-            secrets_status.append(f"✗ {name}: Missing")
+    # Show users
+    users = config.get_users()
+    logger.info(f"\nConfigured users ({len(users)}):")
+    for user in users:
+        id = user.get("id", "[missing id]")
+        abs_url = user.get("abs_url", "[missing abs_url]")
+        abs_token = user.get("abs_token", None)
+        hardcover_token = user.get("hardcover_token", None)
+        logger.info(f"- id: {id}")
+        logger.info(f"    abs_url: {abs_url}")
+        logger.info(f"    abs_token: {'set' if abs_token else 'MISSING'}")
+        logger.info(f"    hardcover_token: {'set' if hardcover_token else 'MISSING'}")
 
-    logger.info("Configuration Status:")
-    for status in secrets_status:
-        logger.info(f"  {status}")
-
-    # Show configuration instructions
-    missing_secrets = [
-        name for name, value in required_secrets if not (value and value.strip())
-    ]
-
-    if missing_secrets:
-        logger.info("\n=== Setup Instructions ===")
-        logger.info("To configure missing secrets:")
-        logger.info("1. Create/edit secrets.env file")
-        logger.info("2. Add the missing values:")
-        for secret in missing_secrets:
-            if secret == "AUDIOBOOKSHELF_URL":
-                logger.info(f"   {secret}=http://your-audiobookshelf-server:13378")
-            else:
-                logger.info(f"   {secret}=your_value_here")
+    # Check for missing user fields
+    missing = []
+    for user in users:
+        for key in ["id", "abs_url", "abs_token", "hardcover_token"]:
+            if not user.get(key):
+                missing.append(f"User '{user.get('id', '[unknown]')}' missing: {key}")
+    if missing:
+        logger.warning("\nSome users have missing fields:")
+        for m in missing:
+            logger.warning(f"  {m}")
+        logger.info("\nPlease edit config/config.yaml to fix missing values.")
+        return False
     else:
-        logger.info("✓ All secrets configured successfully!")
-
-    return len(missing_secrets) == 0
+        logger.info("\n✓ All users and global settings are configured correctly!")
+        return True
 
 
 def clear_screen() -> None:
@@ -320,21 +316,24 @@ def run_sync_interactive(dry_run: bool = False, verbose: bool = False) -> None:
 
     try:
         config = Config()
-        sync_manager = SyncManager(config, dry_run=dry_run)
-        result = sync_once(sync_manager)
-
-        if result["errors"]:
-            print("\n❌ Sync completed with errors. Check logs for details.")
+        global_config = config.get_global()
+        users = config.get_users()
+        any_errors = False
+        for user in users:
+            print(f"\n=== Syncing for user: {user['id']} ===")
+            sync_manager = SyncManager(user, global_config, dry_run=dry_run)
+            result = sync_once(sync_manager)
+            if result["errors"]:
+                print(f"\n❌ Sync for user {user['id']} completed with errors. Check logs for details.")
+                any_errors = True
+            elif result["books_synced"] > 0 or result["books_completed"] > 0:
+                print(f"\n✅ Sync for user {user['id']} completed successfully. {result['books_synced'] + result['books_completed']} books updated.")
+            else:
+                print(f"\n✅ Sync for user {user['id']} completed successfully. No changes needed.")
+        if any_errors:
             sys.exit(1)
-        elif result["books_synced"] > 0 or result["books_completed"] > 0:
-            print(
-                f"\n✅ Sync completed successfully. {result['books_synced'] + result['books_completed']} books updated."
-            )
-            sys.exit(0)
         else:
-            print("\n✅ Sync completed successfully. No changes needed.")
             sys.exit(0)
-
     except Exception as e:
         print(f"\n❌ Sync failed: {str(e)}")
         input("Press Enter to continue...")
@@ -350,16 +349,21 @@ def run_test_interactive() -> None:
 
     try:
         config = Config()
-        sync_manager = SyncManager(config, dry_run=False)
-        success = test_connections(sync_manager)
-
-        if success:
-            print("\n✅ All connections successful!")
-        else:
-            print("\n❌ Some connections failed. Check your configuration.")
-
+        global_config = config.get_global()
+        users = config.get_users()
+        all_success = True
+        for user in users:
+            print(f"\n=== Testing connections for user: {user['id']} ===")
+            sync_manager = SyncManager(user, global_config, dry_run=False)
+            success = test_connections(sync_manager)
+            if success:
+                print(f"\n✅ All connections successful for user {user['id']}!")
+            else:
+                print(f"\n❌ Some connections failed for user {user['id']}. Check your configuration.")
+                all_success = False
         input("\nPress Enter to continue...")
-
+        if not all_success:
+            sys.exit(1)
     except Exception as e:
         print(f"\n❌ Test failed: {str(e)}")
         input("Press Enter to continue...")
@@ -394,8 +398,14 @@ def run_cache_interactive() -> None:
 
     try:
         config = Config()
+        global_config = config.get_global()
+        users = config.get_users()
+        if not users:
+            print("❌ No users configured")
+            input("Press Enter to continue...")
+            return
         sync_manager = SyncManager(
-            config, dry_run=True
+            users[0], global_config, dry_run=True
         )  # Use dry_run to avoid actual sync
 
         # Remove old cache migration call
@@ -624,6 +634,17 @@ def main() -> None:
         help="Force non-interactive mode (useful for automation)",
     )
 
+    parser.add_argument(
+        "--user",
+        type=str,
+        help="Sync only the specified user ID (from config.yaml)"
+    )
+    parser.add_argument(
+        "--all-users",
+        action="store_true",
+        help="Sync all users (default if --user not specified)"
+    )
+
     args = parser.parse_args()
 
     # Determine if we should run in interactive mode
@@ -645,33 +666,60 @@ def main() -> None:
     try:
         # Load configuration
         config = Config()
+        global_config = config.get_global()
+        users = config.get_users()
 
         # Handle config command separately
         if args.command == "config":
             show_config(config)
             return
 
-        # Create sync manager
-        sync_manager = SyncManager(config, dry_run=args.dry_run)
+        # Multi-user sync: loop over all users
+        if args.command == "sync":
+            any_errors = False
+            user_errors = {}
+            # Determine which users to sync
+            if args.user:
+                users_to_sync = [u for u in users if u['id'] == args.user]
+                if not users_to_sync:
+                    print(f"❌ No user found with id '{args.user}' in config.")
+                    sys.exit(1)
+            else:
+                users_to_sync = users
+            for user in users_to_sync:
+                print(f"\n=== Syncing for user: {user['id']} ===")
+                try:
+                    sync_manager = SyncManager(user, global_config, dry_run=args.dry_run)
+                    result = sync_once(sync_manager)
+                    if result["errors"]:
+                        print(f"\n❌ Sync for user {user['id']} completed with errors. Check logs for details.")
+                        user_errors[user['id']] = result["errors"]
+                        any_errors = True
+                    elif result["books_synced"] > 0 or result["books_completed"] > 0:
+                        print(f"\n✅ Sync for user {user['id']} completed successfully. {result['books_synced'] + result['books_completed']} books updated.")
+                    else:
+                        print(f"\n✅ Sync for user {user['id']} completed successfully. No changes needed.")
+                except Exception as e:
+                    print(f"\n❌ Exception during sync for user {user['id']}: {e}")
+                    user_errors[user['id']] = [str(e)]
+                    any_errors = True
+            if any_errors:
+                print("\n=== SYNC ERRORS SUMMARY ===")
+                for uid, errs in user_errors.items():
+                    print(f"User {uid} errors:")
+                    for err in errs:
+                        print(f"  - {err}")
+                sys.exit(1)
+            else:
+                sys.exit(0)
 
-        # Execute command
+        # Create sync manager for the first user (legacy/test)
+        sync_manager = SyncManager(users[0], global_config, dry_run=args.dry_run)
+
+        # Execute other commands (test, clear-cache, cron) for the first user only for now
         if args.command == "test":
             success = test_connections(sync_manager)
             sys.exit(0 if success else 1)
-
-        elif args.command == "sync":
-            result = sync_once(sync_manager)
-            if result["errors"]:
-                print("\n❌ Sync completed with errors. Check logs for details.")
-                sys.exit(1)
-            elif result["books_synced"] > 0 or result["books_completed"] > 0:
-                print(
-                    f"\n✅ Sync completed successfully. {result['books_synced'] + result['books_completed']} books updated."
-                )
-                sys.exit(0)
-            else:
-                print("\n✅ Sync completed successfully. No changes needed.")
-                sys.exit(0)
 
         elif args.command == "clear-cache":
             confirm = (

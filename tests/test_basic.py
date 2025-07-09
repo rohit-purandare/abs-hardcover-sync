@@ -6,7 +6,7 @@ try:
 except ImportError:
     pytest = None
 
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from typing import Any
 
 
@@ -22,30 +22,26 @@ class TestConfig:
         """Test that config module can be imported"""
         try:
             from src.config import Config
-
             assert Config is not None
         except ImportError as e:
-            if pytest:
-                pytest.fail(f"Failed to import Config: {e}")
-            else:
-                raise
+            raise
 
     def test_config_validation(self) -> None:
-        """Test configuration validation"""
-        with patch.dict(
-            "os.environ",
-            {
-                "AUDIOBOOKSHELF_URL": "https://example.com",
-                "AUDIOBOOKSHELF_TOKEN": "test_token",
-                "HARDCOVER_TOKEN": "test_token",
-            },
-        ):
-            from src.config import Config
-
-            config = Config()
-            assert config.AUDIOBOOKSHELF_URL == "https://example.com"
-            assert config.AUDIOBOOKSHELF_TOKEN == "test_token"
-            assert config.HARDCOVER_TOKEN == "test_token"
+        """Test configuration validation (YAML multi-user)"""
+        from src.config import Config
+        config = Config()
+        users = config.get_users()
+        assert isinstance(users, list)
+        assert len(users) > 0
+        for user in users:
+            assert "id" in user
+            assert "abs_url" in user
+            assert "abs_token" in user
+            assert "hardcover_token" in user
+        global_config = config.get_global()
+        assert isinstance(global_config, dict)
+        for key in ["min_progress_threshold", "parallel", "workers", "dry_run", "sync_schedule", "timezone"]:
+            assert key in global_config
 
 
 class TestUtils:
@@ -165,6 +161,41 @@ class TestClients:
                 pytest.fail(f"Failed to import SyncManager: {e}")
             else:
                 raise
+
+
+class TestMultiUser:
+    """Test multi-user config and SyncManager behavior"""
+
+    def test_multiuser_config_loading(self):
+        from src.config import Config
+        config = Config(config_path="config/config.yaml.example")
+        users = config.get_users()
+        assert isinstance(users, list)
+        assert len(users) >= 2  # Example config should have at least 2 users
+        user_ids = [u['id'] for u in users]
+        assert 'alice' in user_ids and 'bob' in user_ids
+        # Check that each user has required fields
+        for user in users:
+            assert 'abs_url' in user
+            assert 'abs_token' in user
+            assert 'hardcover_token' in user
+
+    def test_syncmanager_per_user(self):
+        from src.config import Config
+        from src.sync_manager import SyncManager
+        config = Config(config_path="config/config.yaml.example")
+        global_config = config.get_global()
+        users = config.get_users()
+        # Patch API clients to avoid real calls
+        with patch('src.sync_manager.AudiobookshelfClient', MagicMock()), \
+             patch('src.sync_manager.HardcoverClient', MagicMock()):
+            for user in users:
+                sm = SyncManager(user, global_config, dry_run=True)
+                assert sm.user['id'] == user['id']
+                assert sm.user['abs_url'] == user['abs_url']
+                assert sm.user['hardcover_token'] == user['hardcover_token']
+                # Ensure logger is user-specific
+                assert user['id'] in sm.logger.name
 
 
 if __name__ == "__main__":

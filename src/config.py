@@ -3,129 +3,66 @@ Configuration management for the sync tool
 """
 
 import logging
+import yaml
 import os
 
-from dotenv import load_dotenv
-
-
 class Config:
-    """Configuration class that loads settings from environment variables"""
+    """Configuration class that loads settings from config/config.yaml (YAML)"""
 
-    def __init__(self) -> None:
+    def __init__(self, config_path="config/config.yaml") -> None:
         self.logger = logging.getLogger(__name__)
+        self.config_path = config_path
         self._load_config()
         self._validate_config()
 
     def _load_config(self) -> None:
-        """Load configuration from environment variables"""
-
-        # Load secrets from config/secrets.env file
-        if os.path.exists("config/secrets.env"):
-            load_dotenv("config/secrets.env")
-            self.logger.info("Loaded secrets from config/secrets.env")
-
-        # Load additional settings from .env file
-        if os.path.exists(".env"):
-            load_dotenv(".env")
-            self.logger.debug("Loaded additional configuration from .env")
-
-        # Audiobookshelf settings
-        self.AUDIOBOOKSHELF_URL = os.getenv(
-            "AUDIOBOOKSHELF_URL", "http://localhost:13378"
-        )
-        self.AUDIOBOOKSHELF_TOKEN = os.getenv("AUDIOBOOKSHELF_TOKEN", "")
-
-        # Hardcover settings
-        self.HARDCOVER_TOKEN = os.getenv("HARDCOVER_TOKEN", "")
-
-        # Sync settings
-        self.DEFAULT_SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL_HOURS", "6"))
-
-        # Default to True unless explicitly set to a "falsey" value
-        dry_run_env = os.getenv("DRY_RUN", "true").lower()
-        self.DRY_RUN = dry_run_env not in ("false", "0", "no", "n")
-
-        self.MIN_PROGRESS_THRESHOLD = float(os.getenv("MIN_PROGRESS_THRESHOLD", "5.0"))
-
-        # Logging settings
-        self.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-        self.LOG_FILE = os.getenv("LOG_FILE", "abs_hardcover_sync.log")
-
-        # Rate limiting and retry settings
-        self.MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
-        self.RETRY_DELAY = int(os.getenv("RETRY_DELAY_SECONDS", "5"))
-
-        # Performance optimization settings
-        # Default to True unless explicitly set to a "falsey" value
-        enable_parallel_env = os.getenv("ENABLE_PARALLEL", "true").lower()
-        self.ENABLE_PARALLEL = enable_parallel_env not in ("false", "0", "no", "n")
-
-        self.MAX_WORKERS = int(os.getenv("MAX_WORKERS", "3"))
-
-        # Cron settings
-        self.SYNC_SCHEDULE = os.getenv("SYNC_SCHEDULE", "0 * * * *")
-        self.TIMEZONE = os.getenv("TIMEZONE", "UTC")
-
-        self.logger.info("Configuration loaded from environment variables")
+        if not os.path.exists(self.config_path):
+            raise FileNotFoundError(f"Config file not found: {self.config_path}")
+        with open(self.config_path, "r") as f:
+            config = yaml.safe_load(f)
+        self.global_config = config.get("global", {})
+        self.users = config.get("users", [])
+        self.logger.info(f"Loaded configuration from {self.config_path}")
 
     def _validate_config(self) -> None:
-        """Validate that required configuration is present"""
         errors = []
-
-        if not self.AUDIOBOOKSHELF_TOKEN:
-            errors.append("AUDIOBOOKSHELF_TOKEN is required")
-
-        if not self.HARDCOVER_TOKEN:
-            errors.append("HARDCOVER_TOKEN is required")
-
-        if not self.AUDIOBOOKSHELF_URL:
-            errors.append("AUDIOBOOKSHELF_URL is required")
-
+        # Validate global config
+        required_globals = ["min_progress_threshold", "parallel", "workers", "dry_run", "sync_schedule", "timezone"]
+        for key in required_globals:
+            if key not in self.global_config:
+                errors.append(f"Missing global config: {key}")
+        # Validate users
+        if not self.users:
+            errors.append("No users defined in config")
+        for user in self.users:
+            for key in ["id", "abs_url", "abs_token", "hardcover_token"]:
+                if key not in user:
+                    errors.append(f"Missing user config: {key} for user {user.get('id', '[unknown]')}")
         if errors:
-            error_msg = "Configuration validation failed:\n" + "\n".join(
-                f"- {error}" for error in errors
-            )
+            error_msg = "Configuration validation failed:\n" + "\n".join(f"- {error}" for error in errors)
             self.logger.error(error_msg)
             raise ValueError(error_msg)
-
         self.logger.info("Configuration validation passed")
 
-    def get_audiobookshelf_config(self) -> dict:
-        """Get Audiobookshelf configuration as dictionary"""
-        return {"url": self.AUDIOBOOKSHELF_URL, "token": self.AUDIOBOOKSHELF_TOKEN}
+    def get_global(self) -> dict:
+        return self.global_config
 
-    def get_hardcover_config(self) -> dict:
-        """Get Hardcover configuration as dictionary"""
-        return {"token": self.HARDCOVER_TOKEN}
+    def get_users(self) -> list:
+        return self.users
 
-    def get_sync_config(self) -> dict:
-        """Get sync configuration as dictionary"""
-        return {
-            "interval_hours": self.DEFAULT_SYNC_INTERVAL,
-            "dry_run": self.DRY_RUN,
-            "max_retries": self.MAX_RETRIES,
-            "retry_delay": self.RETRY_DELAY,
-            "min_progress_threshold": self.MIN_PROGRESS_THRESHOLD,
-        }
+    def get_user(self, user_id: str) -> dict:
+        for user in self.users:
+            if user["id"] == user_id:
+                return user
+        raise KeyError(f"User not found: {user_id}")
 
     def get_cron_config(self) -> dict:
-        """Get cron configuration as dictionary"""
+        """Get cron configuration from global settings"""
         return {
-            "schedule": self.SYNC_SCHEDULE,
-            "timezone": self.TIMEZONE,
+            "schedule": self.global_config.get("sync_schedule", "0 3 * * *"),
+            "timezone": self.global_config.get("timezone", "Etc/UTC")
         }
 
     def __str__(self) -> str:
-        """String representation of config (without sensitive data)"""
-        return f"""Configuration:
-  Audiobookshelf URL: {self.AUDIOBOOKSHELF_URL}
-  Audiobookshelf Token: {'[SET]' if self.AUDIOBOOKSHELF_TOKEN else '[NOT SET]'}
-  Hardcover Token: {'[SET]' if self.HARDCOVER_TOKEN else '[NOT SET]'}
-  Sync Interval: {self.DEFAULT_SYNC_INTERVAL} hours
-  Dry Run: {self.DRY_RUN}
-  Min Progress Threshold: {self.MIN_PROGRESS_THRESHOLD}%
-  Log Level: {self.LOG_LEVEL}
-  Max Retries: {self.MAX_RETRIES}
-  Retry Delay: {self.RETRY_DELAY} seconds
-  Sync Schedule: {self.SYNC_SCHEDULE}
-  Timezone: {self.TIMEZONE}"""
+        users_str = ", ".join([user["id"] for user in self.users])
+        return f"Config: users=[{users_str}], global={self.global_config}"

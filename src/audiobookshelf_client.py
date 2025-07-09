@@ -15,9 +15,10 @@ MAX_PARALLEL_WORKERS = 8  # Can be made configurable
 class AudiobookshelfClient:
     """Client for interacting with Audiobookshelf API"""
 
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str, token: str, max_workers: int = MAX_PARALLEL_WORKERS):
         self.base_url = base_url.rstrip("/")
         self.token = token
+        self.max_workers = max_workers
         self.logger = logging.getLogger(__name__)
 
         # Setup session with authentication
@@ -26,7 +27,7 @@ class AudiobookshelfClient:
             {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         )
 
-        self.logger.info(f"AudiobookshelfClient initialized for {self.base_url}")
+        self.logger.info(f"AudiobookshelfClient initialized for {self.base_url} with {self.max_workers} workers")
 
     def test_connection(self) -> bool:
         """Test connection to Audiobookshelf server"""
@@ -74,7 +75,7 @@ class AudiobookshelfClient:
                     return None
 
             with concurrent.futures.ThreadPoolExecutor(
-                max_workers=MAX_PARALLEL_WORKERS
+                max_workers=self.max_workers
             ) as executor:
                 # Fetch details for progress items in parallel
                 progress_futures = {

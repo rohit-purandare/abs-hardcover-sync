@@ -23,7 +23,7 @@ if __name__ == "__main__":
 
 
 class BookCache:
-    """SQLite-based cache for storing book edition mappings and progress tracking"""
+    """SQLite-based cache for storing book edition mappings and progress tracking, now multi-user aware"""
 
     def __init__(self, cache_file: str = "data/.book_cache.db"):
         self.cache_file = cache_file
@@ -39,22 +39,21 @@ class BookCache:
             raise
 
     def _init_database(self) -> None:
-        """Initialize SQLite database with schema"""
+        """Initialize SQLite database with schema, now with user_id column"""
         try:
-            # Ensure the directory exists
             import os
             cache_dir = os.path.dirname(self.cache_file)
             if cache_dir and not os.path.exists(cache_dir):
                 os.makedirs(cache_dir, exist_ok=True)
                 self.logger.info(f"Created cache directory: {cache_dir}")
-            
+
             with sqlite3.connect(self.cache_file) as conn:
                 cursor = conn.cursor()
-                
-                # Create books table if it doesn't exist
+                # Create books table with user_id
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS books (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT NOT NULL,
                         identifier TEXT NOT NULL,
                         identifier_type TEXT NOT NULL,
                         title TEXT NOT NULL,
@@ -65,41 +64,23 @@ class BookCache:
                         last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(identifier, title)
+                        UNIQUE(user_id, identifier, title)
                     )
                 """)
-                
-                # Add missing columns if they don't exist (for existing databases)
+                # Add user_id column if missing (for migration)
                 try:
-                    cursor.execute("ALTER TABLE books ADD COLUMN identifier_type TEXT DEFAULT 'isbn'")
+                    cursor.execute("ALTER TABLE books ADD COLUMN user_id TEXT NOT NULL DEFAULT ''")
                 except sqlite3.OperationalError:
                     pass  # Column already exists
-                
-                try:
-                    cursor.execute("ALTER TABLE books ADD COLUMN progress_percent REAL DEFAULT 0.0")
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
-                
-                try:
-                    cursor.execute("ALTER TABLE books ADD COLUMN last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
-                
-                try:
-                    cursor.execute("ALTER TABLE books ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
-                
                 # Create indexes for better performance
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON books(user_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_identifier ON books(identifier)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_identifier_type ON books(identifier_type)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_title ON books(title)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_edition_id ON books(edition_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_author ON books(author)")
-                
                 conn.commit()
                 self.logger.info(f"Database schema initialized successfully at {self.cache_file}")
-                
         except Exception as e:
             self.logger.error(f"Database initialization failed: {str(e)}")
             raise
@@ -116,11 +97,12 @@ class BookCache:
         return isbn, normalized_title
 
     # Edition-related methods
-    def get_edition_for_book(self, identifier: str, title: str, identifier_type: str = "isbn") -> Optional[int]:
+    def get_edition_for_book(self, user_id: int, identifier: str, title: str, identifier_type: str = "isbn") -> Optional[int]:
         """
         Get cached edition ID for a book
 
         Args:
+            user_id: The user ID for which to fetch the cache.
             identifier: Normalized identifier (ISBN or ASIN)
             title: Book title
             identifier_type: Type of identifier ('isbn' or 'asin')
@@ -132,8 +114,8 @@ class BookCache:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT edition_id FROM books WHERE identifier = ? AND identifier_type = ? AND title = ?",
-                    (identifier, identifier_type, title.lower().strip()),
+                    "SELECT edition_id FROM books WHERE user_id = ? AND identifier = ? AND identifier_type = ? AND title = ?",
+                    (user_id, identifier, identifier_type, title.lower().strip()),
                 )
                 result = cursor.fetchone()
 
@@ -149,12 +131,13 @@ class BookCache:
             return None
 
     def store_edition_mapping(
-        self, identifier: str, title: str, edition_id: int, identifier_type: str = "isbn", author: Optional[str] = None
+        self, user_id: int, identifier: str, title: str, edition_id: int, identifier_type: str = "isbn", author: Optional[str] = None
     ) -> None:
         """
         Store edition mapping in cache
 
         Args:
+            user_id: The user ID for which to store the cache.
             identifier: Normalized identifier (ISBN or ASIN)
             title: Book title
             edition_id: Edition ID to cache
@@ -170,10 +153,10 @@ class BookCache:
                 cursor.execute(
                     """
                     INSERT OR REPLACE INTO books 
-                    (identifier, identifier_type, title, author, edition_id, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (user_id, identifier, identifier_type, title, author, edition_id, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                    (identifier, identifier_type, normalized_title, author, edition_id, current_time),
+                    (user_id, identifier, identifier_type, normalized_title, author, edition_id, current_time),
                 )
 
                 conn.commit()
@@ -185,11 +168,12 @@ class BookCache:
             self.logger.error(f"Error storing edition mapping for {title}: {str(e)}")
 
     # Progress-related methods
-    def get_last_progress(self, identifier: str, title: str, identifier_type: str = "isbn") -> Optional[float]:
+    def get_last_progress(self, user_id: int, identifier: str, title: str, identifier_type: str = "isbn") -> Optional[float]:
         """
         Get last synced progress for a book
 
         Args:
+            user_id: The user ID for which to fetch the cache.
             identifier: Normalized identifier (ISBN or ASIN)
             title: Book title
             identifier_type: Type of identifier ('isbn' or 'asin')
@@ -204,8 +188,8 @@ class BookCache:
                 self.logger.debug(f"Looking up progress for {identifier_type.upper()}: {identifier}, title: '{normalized_title}'")
                 
                 cursor.execute(
-                    "SELECT progress_percent FROM books WHERE identifier = ? AND identifier_type = ? AND title = ?",
-                    (identifier, identifier_type, normalized_title),
+                    "SELECT progress_percent FROM books WHERE user_id = ? AND identifier = ? AND identifier_type = ? AND title = ?",
+                    (user_id, identifier, identifier_type, normalized_title),
                 )
                 result = cursor.fetchone()
 
@@ -223,11 +207,12 @@ class BookCache:
             self.logger.error(f"Error getting progress for {title}: {str(e)}")
             return None
 
-    def store_progress(self, identifier: str, title: str, progress_percent: float, identifier_type: str = "isbn") -> None:
+    def store_progress(self, user_id: int, identifier: str, title: str, progress_percent: float, identifier_type: str = "isbn") -> None:
         """
         Store progress for a book
 
         Args:
+            user_id: The user ID for which to store the cache.
             identifier: Normalized identifier (ISBN or ASIN)
             title: Book title
             progress_percent: Progress percentage to cache
@@ -242,10 +227,11 @@ class BookCache:
                 cursor.execute(
                     """
                     INSERT OR REPLACE INTO books 
-                    (identifier, identifier_type, title, progress_percent, last_synced, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (user_id, identifier, identifier_type, title, progress_percent, last_synced, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
+                        user_id,
                         identifier,
                         identifier_type,
                         normalized_title,
@@ -264,12 +250,13 @@ class BookCache:
             self.logger.error(f"Error storing progress for {title}: {str(e)}")
 
     def has_progress_changed(
-        self, identifier: str, title: str, current_progress: float, identifier_type: str = "isbn"
+        self, user_id: int, identifier: str, title: str, current_progress: float, identifier_type: str = "isbn"
     ) -> bool:
         """
         Check if progress has changed since last sync
 
         Args:
+            user_id: The user ID for which to check the cache.
             identifier: Normalized identifier (ISBN or ASIN)
             title: Book title
             current_progress: Current progress percentage
@@ -278,7 +265,7 @@ class BookCache:
         Returns:
             True if progress has changed, False otherwise
         """
-        last_progress = self.get_last_progress(identifier, title, identifier_type)
+        last_progress = self.get_last_progress(user_id, identifier, title, identifier_type)
         
         if last_progress is None:
             self.logger.debug(f"No previous progress found for {title}, considering as changed")
@@ -386,11 +373,12 @@ class BookCache:
         except Exception as e:
             self.logger.error(f"Error exporting cache: {str(e)}")
 
-    def get_books_by_author(self, author_name: str) -> List[Dict[str, Any]]:
+    def get_books_by_author(self, user_id: int, author_name: str) -> List[Dict[str, Any]]:
         """
         Get all books by a specific author
 
         Args:
+            user_id: The user ID for which to fetch the cache.
             author_name: Name of the author to search for
 
         Returns:
@@ -403,10 +391,10 @@ class BookCache:
                     """
                     SELECT identifier, title, author, edition_id, progress_percent, last_synced
                     FROM books 
-                    WHERE author = ?
+                    WHERE user_id = ? AND author = ?
                     ORDER BY title
                 """,
-                    (author_name,),
+                    (user_id, author_name),
                 )
                 results = cursor.fetchall()
 
@@ -434,39 +422,34 @@ class BookCache:
 class SyncManager:
     """Manages synchronization between Audiobookshelf and Hardcover"""
 
-    def __init__(self, config: Any, dry_run: bool = False) -> None:
-        """Initialize SyncManager with configuration"""
-        self.config = config
+    def __init__(self, user: dict, global_config: dict, dry_run: bool = False) -> None:
+        """Initialize SyncManager with user dict and global config"""
+        self.user = user
+        self.global_config = global_config
         self.dry_run = dry_run
-        self.min_progress_threshold = config.MIN_PROGRESS_THRESHOLD
-        self.logger = logging.getLogger(__name__)
+        self.min_progress_threshold = global_config["min_progress_threshold"]
+        self.user_id = user['id']
+        self.logger = logging.getLogger(f"SyncManager.{user['id']}")
         self.logger.setLevel(logging.DEBUG)
 
-        # Initialize API clients
-        self.audiobookshelf = AudiobookshelfClient(
-            config.AUDIOBOOKSHELF_URL, config.AUDIOBOOKSHELF_TOKEN
-        )
-        self.hardcover = HardcoverClient(config.HARDCOVER_TOKEN)
+        # Performance optimization settings (set before initializing clients)
+        self.max_workers = global_config.get("workers", 3)
+        self.enable_parallel = global_config.get("parallel", True)
+        self.timing_data: Dict[str, float] = {}  # Store timing information
 
-        # Initialize book cache and migrate from old caches
+        # Initialize API clients with user credentials
+        self.audiobookshelf = AudiobookshelfClient(
+            user["abs_url"], user["abs_token"], max_workers=self.max_workers
+        )
+        self.hardcover = HardcoverClient(user["hardcover_token"])
+
+        # Initialize book cache (can be extended for per-user cache if needed)
         self.logger.info("Creating BookCache instance...")
         self.book_cache = BookCache()
         self.logger.info(f"BookCache created with cache_file: {self.book_cache.cache_file}")
-        # Remove old cache migration call
-        # self.book_cache.migrate_from_old_caches()
-
-        # Get sync configuration
-        self.sync_config = config.get_sync_config()
-
-        # Performance optimization settings
-        self.max_workers = getattr(
-            config, "MAX_WORKERS", 3
-        )  # Limit concurrent API calls
-        self.enable_parallel = getattr(config, "ENABLE_PARALLEL", True)
-        self.timing_data: Dict[str, float] = {}  # Store timing information
 
         self.logger.info(
-            f"SyncManager initialized (dry_run: {dry_run}, min_threshold: {self.min_progress_threshold}%, parallel: {self.enable_parallel}, workers: {self.max_workers})"
+            f"SyncManager initialized for user {user['id']} (dry_run: {dry_run}, min_threshold: {self.min_progress_threshold}%, parallel: {self.enable_parallel}, workers: {self.max_workers})"
         )
 
     def _is_zero_progress(self, progress_value) -> bool:
@@ -1039,11 +1022,11 @@ class SyncManager:
             # Try ASIN first, then ISBN
             asin = identifiers.get("asin")
             if asin:
-                cached_edition_id = self.book_cache.get_edition_for_book(asin, title, "asin")
+                cached_edition_id = self.book_cache.get_edition_for_book(self.user_id, asin, title, "asin")
             if not cached_edition_id:
                 isbn = identifiers.get("isbn")
                 if isbn:
-                    cached_edition_id = self.book_cache.get_edition_for_book(isbn, title, "isbn")
+                    cached_edition_id = self.book_cache.get_edition_for_book(self.user_id, isbn, title, "isbn")
 
         # Select edition using enhanced logic with cache
         edition = self._select_edition_with_cache(
@@ -1055,26 +1038,22 @@ class SyncManager:
         if identifiers:
             asin = identifiers.get("asin")
             if asin:
-                self.book_cache.store_edition_mapping(
-                    asin, title, edition["id"], "asin", author
-                )
+                self.book_cache.store_edition_mapping(self.user_id, asin, title, edition["id"], "asin", author)
             else:
                 isbn = identifiers.get("isbn")
                 if isbn:
-                    self.book_cache.store_edition_mapping(
-                        isbn, title, edition["id"], "isbn", author
-                    )
+                    self.book_cache.store_edition_mapping(self.user_id, isbn, title, edition["id"], "isbn", author)
 
         # Check if we have cached progress and can skip API calls
         cached_progress = None
         if identifiers:
             isbn = identifiers.get("isbn")
             if isbn:
-                cached_progress = self.book_cache.get_last_progress(isbn, title, "isbn")
+                cached_progress = self.book_cache.get_last_progress(self.user_id, isbn, title, "isbn")
             else:
                 asin = identifiers.get("asin")
                 if asin:
-                    cached_progress = self.book_cache.get_last_progress(asin, title, "asin")
+                    cached_progress = self.book_cache.get_last_progress(self.user_id, asin, title, "asin")
 
         # If we have cached progress and it matches current progress, skip expensive API calls
         if cached_progress is not None and abs(cached_progress - progress_percent) < 0.1:
@@ -1086,11 +1065,11 @@ class SyncManager:
             if identifiers:
                 isbn = identifiers.get("isbn")
                 if isbn:
-                    self.book_cache.store_progress(isbn, title, progress_percent, "isbn")
+                    self.book_cache.store_progress(self.user_id, isbn, title, progress_percent, "isbn")
                 else:
                     asin = identifiers.get("asin")
                     if asin:
-                        self.book_cache.store_progress(asin, title, progress_percent, "asin")
+                        self.book_cache.store_progress(self.user_id, asin, title, progress_percent, "asin")
 
             return {
                 "status": "skipped",
@@ -1204,7 +1183,7 @@ class SyncManager:
             if progress_percent == 0.0:
                 # Store the progress in cache even for 0% (for tracking purposes)
                 if isbn:
-                    self.book_cache.store_progress(isbn, title, progress_percent)
+                    self.book_cache.store_progress(self.user_id, isbn, title, progress_percent, "isbn")
 
                 return {
                     "status": "skipped",
@@ -1234,7 +1213,7 @@ class SyncManager:
                 if success:
                     # Store the synced progress in cache (for both above and below threshold)
                     if isbn:
-                        self.book_cache.store_progress(isbn, title, progress_percent)
+                        self.book_cache.store_progress(self.user_id, isbn, title, progress_percent, "isbn")
 
                     return {
                         "status": "synced",
@@ -1485,7 +1464,7 @@ class SyncManager:
         if current_status_id == 3:
             isbn = self._extract_isbn_from_abs_book(abs_book)
             last_progress = (
-                self.book_cache.get_last_progress(isbn, title) if isbn else None
+                self.book_cache.get_last_progress(self.user_id, isbn, title) if isbn else None
             )
             if (
                 last_progress is not None
@@ -1500,9 +1479,7 @@ class SyncManager:
                     "reason": f"Already completed, no progress change ({progress_percent:.1f}%)",
                 }
             # Only update if progress has changed
-            if isbn and not self.book_cache.has_progress_changed(
-                isbn, title, progress_percent
-            ):
+            if isbn and not self.book_cache.has_progress_changed(self.user_id, isbn, title, progress_percent):
                 self.logger.info(
                     f"✅ {title} already completed, progress unchanged, skipping update"
                 )
@@ -1581,9 +1558,9 @@ class SyncManager:
         """Export cache data to JSON for backup/debugging"""
         self.book_cache.export_to_json(filename)
 
-    def get_books_by_author(self, author_name: str) -> List[Dict[str, Any]]:
+    def get_books_by_author(self, user_id: int, author_name: str) -> List[Dict[str, Any]]:
         """Get all books by a specific author from the cache"""
-        return self.book_cache.get_books_by_author(author_name)
+        return self.book_cache.get_books_by_author(user_id, author_name)
 
     def _get_cached_book_status(self, user_book_id: int, title: str) -> Optional[Dict[str, Any]]:
         """Get cached book status to avoid API calls"""

@@ -1,16 +1,30 @@
+# Audiobookshelf to Hardcover Sync Tool
+# Sync your audiobook listening progress from Audiobookshelf to Hardcover
+#
+# Quick Start:
+# 1. Copy config/config.yaml.example to config/config.yaml
+# 2. Edit config/config.yaml with your settings
+# 3. Run: docker-compose up -d
+#
+# For local development/testing, use:
+#   docker-compose -f docker-compose.local.yml up -d
+#
+# This compose file uses the published GHCR image.
+# For local builds, use docker-compose.local.yml instead.
+
 services:
   abs-hardcover-sync:
-    # Pulls from GitHub Container Registry: https://github.com/rohit-purandare/audiobookshelf-hardcover-sync/pkgs/container/audiobookshelf-hardcover-sync
+    # build: .  # Uncomment for local development
     image: ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest
-    # build: .
     container_name: abs-hardcover-sync
     restart: unless-stopped
     user: "1000:1000"  # Run as current user to avoid permission issues
     environment:
       - PYTHONPATH=/app
+      - TZ=Etc/UTC  # Set to UTC by default; change to your local timezone if needed
     volumes:
       # Mount config files for persistence
-      - ./config/secrets.env:/app/config/secrets.env:ro
+      - ./config/config.yaml:/app/config/config.yaml:ro  # Mount your config file
       # Mount cache directory for persistence
       - ./data:/app/data
       # Removed old cache file mounts

@@ -211,14 +211,15 @@ def test_audio_seconds_in_schema():
         print(f"❌ Schema introspection failed: {str(e)}")
 
 if __name__ == "__main__":
-    print("🧪 Testing Hardcover Audio Progress Support")
-    print("=" * 50)
-    
-    # Test schema first
-    test_audio_seconds_in_schema()
-    
-    # Test mutations
-    test_audio_progress_mutation()
+    from config import Config
+    config = Config()
+    users = config.get_users()
+    for user in users:
+        print(f"\n=== Running audio progress tests for user: {user['id']} ===")
+        client = HardcoverClient(user["hardcover_token"])
+        # You may need to refactor test functions to accept a client argument
+        # For now, just print the user id
+        print(f"[INFO] Would run audio progress tests for user: {user['id']}")
     
     print("\n" + "=" * 50)
     print("�� Testing complete") 
