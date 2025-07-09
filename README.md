@@ -1,13 +1,24 @@
 # Audiobookshelf to Hardcover Sync Tool
 
+> **This tool matches books by ASIN (for audiobooks) and falls back to ISBN (for print/ebooks) for the most accurate sync.**
+
 **Sync your audiobook listening progress from [Audiobookshelf](https://www.audiobookshelf.org/) to [Hardcover](https://hardcover.app/) automatically.**
 
-- 📚 Match books by ISBN and sync progress
+- 📚 Match books by **ASIN** (for audiobooks) and fall back to **ISBN** (for print/ebooks) for accurate sync
 - 🔄 Runs on a schedule, in the background
 - 🐳 Production-ready Docker image (Alpine, healthcheck, non-root)
 - 🛡️ Secure: no secrets in the image, no data sent to third parties
 - 💾 Persistent SQLite cache for efficient syncing
 - 👥 **Multi-user support**: sync multiple users in one run
+
+---
+
+## How Book Matching Works
+
+- The tool first tries to match books by **ASIN** (Amazon Standard Identification Number), which is prioritized for audiobooks.
+- If no ASIN match is found, it falls back to matching by **ISBN** (either ISBN-10 or ISBN-13), which is common for print and ebook formats.
+- If neither ASIN nor ISBN is found, the book is skipped and not synced.
+- This fallback logic ensures the most accurate and format-appropriate match for each book.
 
 ---
 
