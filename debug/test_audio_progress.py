@@ -19,7 +19,8 @@ def test_audio_progress_mutation():
     
     # Load config
     config = Config()
-    client = HardcoverClient(config.HARDCOVER_TOKEN)
+    user = config.get_users()[0]  # Get first user
+    client = HardcoverClient(user["hardcover_token"])
     
     # Test connection
     if not client.test_connection():
@@ -173,7 +174,8 @@ def test_audio_seconds_in_schema():
     print("\n🔍 Testing if audio_seconds field exists in user_book_read schema...")
     
     config = Config()
-    client = HardcoverClient(config.HARDCOVER_TOKEN)
+    user = config.get_users()[0]  # Get first user
+    client = HardcoverClient(user["hardcover_token"])
     
     # Introspection query to check schema
     introspection_query = """

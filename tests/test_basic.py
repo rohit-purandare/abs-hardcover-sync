@@ -2,7 +2,7 @@
 
 # pytest is installed in CI environment
 try:
-    import pytest
+    import pytest  # type: ignore
 except ImportError:
     pytest = None
 

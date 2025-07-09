@@ -19,7 +19,8 @@ def test_progress_percentage_field():
     print("🧪 Testing progress_percentage field support...")
     
     config = Config()
-    client = HardcoverClient(config.HARDCOVER_TOKEN)
+    user = config.get_users()[0]  # Get first user
+    client = HardcoverClient(user["hardcover_token"])
     
     # Get user books to find a book with progress
     user_books = client.get_user_books()
@@ -42,6 +43,9 @@ def test_progress_percentage_field():
     user_book = test_book
     edition = user_book["book"]["editions"][0]
     existing_progress = client.get_book_current_progress(user_book["id"])
+    if not existing_progress or not existing_progress.get("has_progress"):
+        print("❌ No valid progress found for this book")
+        return
     read_id = existing_progress["latest_read"]["id"]
     
     print(f"✅ Testing with book: {user_book['book'].get('title', 'Unknown')}")
@@ -103,7 +107,8 @@ def test_all_possible_fields():
     print("\n🔍 Testing all possible progress-related fields...")
     
     config = Config()
-    client = HardcoverClient(config.HARDCOVER_TOKEN)
+    user = config.get_users()[0]  # Get first user
+    client = HardcoverClient(user["hardcover_token"])
     
     # Get user books
     user_books = client.get_user_books()
@@ -207,7 +212,8 @@ def test_schema_introspection():
     print("\n🔍 Using GraphQL introspection to explore schema...")
     
     config = Config()
-    client = HardcoverClient(config.HARDCOVER_TOKEN)
+    user = config.get_users()[0]  # Get first user
+    client = HardcoverClient(user["hardcover_token"])
     
     # Introspection query for user_book_read input type
     introspection_query = """
@@ -253,7 +259,8 @@ def test_user_book_read_output_fields():
     print("\n🔍 Checking user_book_read output fields...")
     
     config = Config()
-    client = HardcoverClient(config.HARDCOVER_TOKEN)
+    user = config.get_users()[0]  # Get first user
+    client = HardcoverClient(user["hardcover_token"])
     
     introspection_query = """
     query IntrospectUserBookReadOutput {
