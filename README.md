@@ -178,11 +178,11 @@ services:
 
 ## How It Works & Features
 - Fetches progress from Audiobookshelf for each user
-- Matches books in Hardcover by ISBN
+- **Matches books by ASIN (audiobooks) and falls back to ISBN (print/ebooks)** for accurate sync
 - Converts percentage to page number
 - Updates reading progress in Hardcover
 - Auto-completes books at 95%+
-- Skips books with no ISBN or 0% progress
+- Skips books with no ISBN/ASIN or 0% progress
 - **SQLite cache for efficient syncing** (multi-user aware)
 - Parallel processing for speed
 - Robust error handling and per-user logging
