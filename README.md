@@ -75,22 +75,36 @@
 
 For local development and testing with your own code changes:
 
-1. **Use the local compose file:**
+1. **Create a local compose file:**
    ```sh
-   docker-compose -f docker-compose.local.yml up -d
+   # Copy the main compose file and modify for local builds
+   cp docker-compose.yml docker-compose.local.yml
+   # Edit docker-compose.local.yml to use "build: ." instead of the image
    ```
 
-2. **Or build and run manually:**
+2. **Modify the local compose file:**
+   ```yaml
+   # In docker-compose.local.yml, change:
+   services:
+     abs-hardcover-sync:
+       build: .  # Local build for development
+       # image: ghcr.io/rohit-purandare/audiobookshelf-hardcover-sync:latest  # Comment out
+       container_name: abs-hardcover-sync-local  # Different name to avoid conflicts
+   ```
+
+3. **Build and run locally:**
    ```sh
    docker-compose -f docker-compose.local.yml build --no-cache
    docker-compose -f docker-compose.local.yml up -d
    ```
 
-3. **Test your changes:**
+4. **Test your changes:**
    ```sh
    # Test with local build
    docker-compose -f docker-compose.local.yml run --rm abs-hardcover-sync sync --dry-run
    ```
+
+**Note:** The local compose file is not included in the repository (gitignored) to avoid conflicts between different development environments.
 
 ---
 
